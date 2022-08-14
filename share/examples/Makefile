@@ -322,6 +322,7 @@ SE_SOUND= \
 	ossinit.h \
 	ossmidi.h \
 	midi.c \
+	selected.c \
 	README
 
 SE_DIRS+=	sunrpc
