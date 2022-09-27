@@ -64,3 +64,14 @@ divide the total buffer size into smaller fragments, keeping overall latency at
 the same level.
 
 Official OSS development howto: http://manuals.opensound.com/developer/DSP.html
+
+When combining several audio and MIDI devices polling system has to be used. It
+is generally advised to use poll(2) because ALSA and SNDIO support it, too. It
+is also the most portable polling framework. In the polling example all three:
+select(2), poll(2) and kqueue(2) are given. For maximally flexible
+implementation it is best to use poll(2) with inputs and outputs as separate
+file descriptors, even if they belong to the same audio device. The reason is
+that poll(2) is portable and with separate inputs and outputs code can handle
+channel numbers that do not match (eg. 8 input channels, 2 output channels).
+Such implementation is not part of the examples but can be easily extended from
+polling.c.
