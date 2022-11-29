@@ -10,6 +10,62 @@
 # $7 id
 
 pf=
+
+piped() {
+	local PIPES
+	local port
+	local status
+	local pipeno
+	local data
+
+	PIPES=`sysrc -i -n -s blacklistd blacklistd_pipes`
+	data=`echo $PIPES | egrep -o "^all:[[:digit:]]*\$"`
+	status=$?
+	if [ "$status" = "0" ]; then
+		pipeno=`echo $data | cut -f 2 -d ':'`
+		echo "$pipeno"
+		return
+	fi
+	port=$1
+	for pipe in $PIPES; do
+		data=`echo $pipe | egrep -o "^${port}:[[:digit:]]*\$"`
+		status=$?
+		if [ "${status}" = "0" ]; then
+			pipeno=`echo $data | cut -f 2 -d ':'`
+			echo "$pipeno"
+			return
+		fi
+	done
+	echo "no"
+}
+
+probability() {
+	local PIPES
+	local port
+	local status
+	local prob
+	local data
+
+	PIPES=`sysrc -i -n -s blacklistd blacklistd_pipes`
+	data=`echo $PIPES | egrep -o "^all:[[:digit:]]*\$"`
+	status=$?
+	if [ "$status" = "0" ]; then
+		prob=`echo $data | cut -f 3 -d ':'`
+		echo "$prob"
+		return
+	fi
+	port=$1
+	for pipe in $PIPES; do
+		data=`echo $pipe | egrep -o "^${port}:[[:digit:]]*\$"`
+		status=$?
+		if [ "${status}" = "0" ]; then
+			prob=`echo $data | cut -f 3 -d ':'`
+			echo "$prob"
+			return
+		fi
+	done
+}
+
 if [ -f "/etc/ipfw-blacklist.rc" ]; then
 	pf="ipfw"
 	. /etc/ipfw-blacklist.rc
@@ -50,6 +106,12 @@ esac
 
 case "$1" in
 add)
+	local mypipe
+	local prob
+
+	mypipe=`piped $6`
+	if [ "$mypipe" != "no" ]; then
+		prob=`probability $6`
 	case "$pf" in
 	ipf)
 		/sbin/ipfstat -io | /sbin/ipf -I -f - >/dev/null 2>&1
@@ -64,10 +126,17 @@ add)
 		/sbin/ipfw table $tname create type addr 2>/dev/null
 		/sbin/ipfw -q table $tname add "$addr/$mask"
 		# if rule number $rule does not already exist, create it
-		/sbin/ipfw show $rule >/dev/null 2>&1 || \
-			/sbin/ipfw add $rule drop $3 from \
-			table"("$tname")" to any dst-port $6 >/dev/null && \
-			echo OK
+		if [ "$mypipe" = "no" ]; then
+			/sbin/ipfw show $rule >/dev/null 2>&1 || \
+				/sbin/ipfw add $rule drop $3 from \
+				table"("$tname")" to any dst-port $6 >/dev/null && \
+				echo OK
+		else
+			/sbin/ipfw show $rule >/dev/null 2>&1 || \
+				/sbin/ipfw add $rule pipe $mypipe $3 from \
+				table"("$tname")" to any dst-port $6 >/dev/null && \
+				echo OK
+		fi
 		;;
 	npf)
 		/sbin/npfctl rule "$2" add block in final $proto from \
@@ -75,12 +144,25 @@ add)
 		;;
 	pf)
 		# if the filtering rule does not exist, create it
-		/sbin/pfctl -a "$2/$6" -sr 2>/dev/null | \
-		    grep -q "<port$6>" || \
-		    echo "block in quick $proto from <port$6> to any $port" | \
-		    /sbin/pfctl -a "$2/$6" -f -
+		if [ "$mypipe" = "no" ]; then
+			/sbin/pfctl -a "$2/$6" -sr 2>/dev/null | \
+			    grep -q "<blacklist>" || \
+			    echo "block in quick $proto from <blacklist> to any $port" | \
+			    /sbin/pfctl -a "$2/$6" -f -
+		elif [ -n "$prob" ]; then
+			/sbin/pfctl -a "$2/$6" -sr 2>/dev/null | \
+			    grep -q "<blacklist>" || \
+			    echo -e "block in quick $proto from <blacklist> to any $port probability $prob\n \
+				     pass in quick $proto from <blacklist> to any $port dnpipe $mypipe" | \
+			    /sbin/pfctl -a "$2/$6" -f -
+		else
+			/sbin/pfctl -a "$2/$6" -sr 2>/dev/null | \
+			    grep -q "<blacklist>" || \
+			    echo "pass in quick $proto from <blacklist> to any $port dnpipe $mypipe" | \
+			    /sbin/pfctl -a "$2/$6" -f -
+		fi
 		# insert $ip/$mask into per-protocol/port anchored table
-		/sbin/pfctl -qa "$2/$6" -t "port$6" -T add "$addr/$mask" && \
+		/sbin/pfctl -qa "$2/$6" -t "blacklist" -T add "$addr/$mask" && \
 		    /sbin/pfctl -qk "$addr" && echo OK
 		;;
 	esac
@@ -101,7 +183,7 @@ rem)
 		/sbin/npfctl rule "$2" rem-id "$7"
 		;;
 	pf)
-		/sbin/pfctl -qa "$2/$6" -t "port$6" -T delete "$addr/$mask" && \
+		/sbin/pfctl -qa "$2/$6" -t "blacklist" -T delete "$addr/$mask" && \
 		    echo OK
 		;;
 	esac
@@ -120,7 +202,7 @@ flush)
 	pf)
 		# dynamically determine which anchors exist
 		for anchor in $(/sbin/pfctl -a "$2" -s Anchors); do
-			/sbin/pfctl -a $anchor -t "port${anchor##*/}" -T flush
+			/sbin/pfctl -a $anchor -t "blacklist" -T flush
 			/sbin/pfctl -a $anchor -F rules
 		done
 		echo OK
