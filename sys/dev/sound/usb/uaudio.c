@@ -96,7 +96,7 @@
 static int uaudio_default_rate = 0;		/* use rate list */
 static int uaudio_default_bits = 32;
 static int uaudio_default_channels = 0;		/* use default */
-static int uaudio_buffer_ms = 2;
+static int uaudio_buffer_ms = 1;
 static bool uaudio_handle_hid = true;
 
 static SYSCTL_NODE(_hw_usb, OID_AUTO, uaudio, CTLFLAG_RW | CTLFLAG_MPSAFE, 0,
@@ -123,8 +123,8 @@ uaudio_buffer_ms_sysctl(SYSCTL_HANDLER_ARGS)
 
 	if (val > 8)
 		val = 8;
-	else if (val < 2)
-		val = 2;
+	else if (val < 1)
+		val = 1;
 
 	uaudio_buffer_ms = val;
 
@@ -133,7 +133,7 @@ uaudio_buffer_ms_sysctl(SYSCTL_HANDLER_ARGS)
 SYSCTL_PROC(_hw_usb_uaudio, OID_AUTO, buffer_ms,
     CTLTYPE_INT | CTLFLAG_RWTUN | CTLFLAG_MPSAFE, 0, sizeof(int),
     uaudio_buffer_ms_sysctl, "I",
-    "uaudio buffering delay from 2ms to 8ms");
+    "uaudio buffering delay from 1ms to 8ms");
 
 #ifdef USB_DEBUG
 static int uaudio_debug;
