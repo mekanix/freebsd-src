@@ -249,6 +249,88 @@ jailparam_free(params, 2);
 \&...
 free(hostname);
 .Ed
+.Pp
+Set and get nvparams of jail
+.Dq foo :
+.Bd -literal -offset indent
+#include <sys/sysctl.h>
+#include <sys/param.h>
+#include <sys/nv.h>
+#include <sys/jail.h>
+#include <sys/uio.h>
+
+#include <jail.h>
+#include <err.h>
+#include <stdlib.h>
+
+int
+main() {
+	int rc;
+	int jid;
+	size_t len;
+	struct iovec jiov[4];
+	nvlist_t *nvl = nvlist_create(0);
+
+	nvlist_add_string(nvl, "some", "thing");
+	jid = jail_getid("foo");
+	if (jid < 0) {
+		err(1, "jail_getid");
+	}
+
+	// Use pair of iovecs for jid.
+	// First iovec is name of the parameter, second is the value.
+	jiov[0].iov_base = __DECONST(char *, "jid");
+	jiov[0].iov_len = sizeof("jid");
+	jiov[1].iov_base = &jid;
+	jiov[1].iov_len = sizeof(jid);
+
+	// Use pair of iovecs for nvlist
+	jiov[2].iov_base = __DECONST(char *, "nvparams");
+	jiov[2].iov_len = sizeof("nvparams");
+	jiov[3].iov_base = nvlist_pack(nvl, &len);
+	jiov[3].iov_len = len;
+
+	jid = jail_set(jiov, 4, JAIL_UPDATE);
+	free(jiov[3].iov_base);
+	if (jid < 0) {
+		err(1, "jail_set");
+	}
+
+	// Getting nvparams is done in two stages. First, get the size of the
+	// list, then get the actual list.
+	jiov[2].iov_base = __DECONST(char *, "nvsize");
+	jiov[2].iov_len = sizeof("nvsize");
+	jiov[3].iov_base = &len;
+	jiov[3].iov_len = sizeof(len);
+
+	rc = jail_get(jiov, 4, 0);
+	if (rc < 0) {
+		err(1, "jail_get size");
+	}
+
+	jiov[2].iov_base = __DECONST(char *, "nvparams");
+	jiov[2].iov_len = sizeof("nvparams");
+	jiov[3].iov_base = malloc(len);
+	jiov[3].iov_len = len;
+
+	rc = jail_get(jiov, 4, 0);
+	if (rc < 0) {
+		err(1, "jail_get data");
+	}
+
+	nvl = nvlist_unpack(jiov[3].iov_base, len, 0);
+	free(jiov[3].iov_base);
+	if (nvl == NULL) {
+		err(1, "nvlist_unpack");
+	}
+	nvlist_fdump(nvl, stdout);
+	return 0;
+}
+.Ed
+.Pp
+To compile the previous example
+.Lb libnv
+is needed.
 .Sh ERRORS
 The
 .Nm jail
