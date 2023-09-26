@@ -2346,8 +2346,9 @@ kern_jail_get(struct thread *td, struct uio *optuio, int flags)
 	char *errmsg, *name;
 	int drflags, error, errmsg_len, errmsg_pos, i, jid, len, pos;
 	unsigned f;
-	size_t size;
-	void *buf = NULL;
+	void *nvbuf = NULL;
+	bool gotnvparams = false;
+	size_t nvsize = 0;
 
 	if (flags & ~JAIL_GET_MASK)
 		return (EINVAL);
@@ -2360,6 +2361,27 @@ kern_jail_get(struct thread *td, struct uio *optuio, int flags)
 	mypr = td->td_ucred->cr_prison;
 	pr = NULL;
 
+	error = vfs_getopt(opts, "nvsize", &nvbuf, &len);
+	if (error == ENOENT) {
+		gotnvparams = true;
+	}
+	else if (error != 0) {
+		goto done;
+	}
+	else {
+		gotnvparams = true;
+	}
+
+	error = vfs_getopt(opts, "nvparams", &nvbuf, &len);
+	if (error == ENOENT) {
+		gotnvparams = true;
+	}
+	else if (error != 0) {
+		goto done;
+	}
+	else {
+		gotnvparams = true;
+	}
 	/*
 	 * Find the prison specified by one of: lastjid, jid, name.
 	 */
@@ -2559,18 +2581,20 @@ kern_jail_get(struct thread *td, struct uio *optuio, int flags)
 	if (error != 0 && error != ENOENT)
 		goto done;
 
-	buf = nvlist_pack(pr->nvparams, &size);
-	if (buf == NULL) {
-		error = EINVAL;
-		goto done;
-	}
-	error = vfs_setopt(opts, "nvsize", &size, sizeof(size));
-	if (error != 0 && error != ENOENT) {
-		goto done;
-	}
-	error = vfs_setopt(opts, "nvparams", buf, size);
-	if (error != 0 && error != ENOENT) {
-		goto done;
+	if (gotnvparams) {
+		nvbuf = nvlist_pack(pr->nvparams, &nvsize);
+		if (nvbuf == NULL) {
+			error = EINVAL;
+			goto done;
+		}
+		error = vfs_setopt(opts, "nvsize", &nvsize, sizeof(nvsize));
+		if (error != 0 && error != ENOENT) {
+			goto done;
+		}
+		error = vfs_setopt(opts, "nvparams", nvbuf, nvsize);
+		if (error != 0 && error != ENOENT) {
+			goto done;
+		}
 	}
 
 	/* Get the module parameters. */
@@ -2636,8 +2660,8 @@ kern_jail_get(struct thread *td, struct uio *optuio, int flags)
 		}
 	}
 	vfs_freeopts(opts);
-	if (buf != NULL) {
-		free(buf, M_PRISON);
+	if (nvbuf != NULL) {
+		free(nvbuf, M_PRISON);
 	}
 	return (error);
 }
