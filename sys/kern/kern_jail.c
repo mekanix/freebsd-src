@@ -2347,7 +2347,7 @@ kern_jail_get(struct thread *td, struct uio *optuio, int flags)
 	int drflags, error, errmsg_len, errmsg_pos, i, jid, len, pos;
 	unsigned f;
 	void *nvbuf = NULL;
-	bool gotnvparams = false;
+	bool gotnvparams, gotnvsize;
 	size_t nvsize = 0;
 
 	if (flags & ~JAIL_GET_MASK)
@@ -2362,19 +2362,21 @@ kern_jail_get(struct thread *td, struct uio *optuio, int flags)
 	pr = NULL;
 
 	error = vfs_getopt(opts, "nvsize", &nvbuf, &len);
+	nvbuf = NULL;
 	if (error == ENOENT) {
-		gotnvparams = true;
+		gotnvsize = false;
 	}
 	else if (error != 0) {
+		gotnvsize = false;
 		goto done;
 	}
 	else {
-		gotnvparams = true;
+		gotnvsize = true;
 	}
 
 	error = vfs_getopt(opts, "nvparams", &nvbuf, &len);
 	if (error == ENOENT) {
-		gotnvparams = true;
+		gotnvparams = false;
 	}
 	else if (error != 0) {
 		goto done;
@@ -2587,11 +2589,19 @@ kern_jail_get(struct thread *td, struct uio *optuio, int flags)
 			error = EINVAL;
 			goto done;
 		}
-		error = vfs_setopt(opts, "nvsize", &nvsize, sizeof(nvsize));
+		error = vfs_setopt(opts, "nvparams", nvbuf, nvsize);
 		if (error != 0 && error != ENOENT) {
 			goto done;
 		}
-		error = vfs_setopt(opts, "nvparams", nvbuf, nvsize);
+		if (gotnvsize) {
+			error = vfs_setopt(opts, "nvsize", &nvsize, sizeof(nvsize));
+			if (error != 0 && error != ENOENT) {
+				goto done;
+			}
+		}
+	} else if (gotnvsize) {
+		nvsize = nvlist_size(pr->nvparams);
+		error = vfs_setopt(opts, "nvsize", &nvsize, sizeof(nvsize));
 		if (error != 0 && error != ENOENT) {
 			goto done;
 		}
