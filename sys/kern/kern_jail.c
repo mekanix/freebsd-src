@@ -4550,6 +4550,7 @@ merge_lists(nvlist_t *dst, const nvlist_t *src)
 					remove_nv_param(dst, name);
 					nvlist_add_bool_array(dst, name, array, items);
 				}
+        break;
 			}
 			case NV_TYPE_NUMBER_ARRAY: {
 				const uint64_t *array = nvlist_get_number_array(src, name, &items);
@@ -4561,6 +4562,7 @@ merge_lists(nvlist_t *dst, const nvlist_t *src)
 					remove_nv_param(dst, name);
 					nvlist_add_number_array(dst, name, array, items);
 				}
+        break;
 			}
 			case NV_TYPE_STRING_ARRAY: {
 				const char * const *array = nvlist_get_string_array(src, name, &items);
@@ -4572,6 +4574,7 @@ merge_lists(nvlist_t *dst, const nvlist_t *src)
 					remove_nv_param(dst, name);
 					nvlist_add_string_array(dst, name, array, items);
 				}
+        break;
 			}
 			case NV_TYPE_NVLIST_ARRAY: {
 				const nvlist_t * const *array = nvlist_get_nvlist_array(src, name, &items);
@@ -4583,6 +4586,7 @@ merge_lists(nvlist_t *dst, const nvlist_t *src)
 					remove_nv_param(dst, name);
 					nvlist_add_nvlist_array(dst, name, array, items);
 				}
+        break;
 			}
 		}
 	}
