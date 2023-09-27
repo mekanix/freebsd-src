@@ -2344,11 +2344,16 @@ kern_jail_get(struct thread *td, struct uio *optuio, int flags)
 	struct vfsopt *opt;
 	struct vfsoptlist *opts;
 	char *errmsg, *name;
-	int drflags, error, errmsg_len, errmsg_pos, i, jid, len, pos;
+	int drflags, error, errmsg_len, errmsg_pos, i, jid, len, pos, partiallen;
 	unsigned f;
 	void *nvbuf = NULL;
+	void *partialbuf = NULL;
+	void *partialcopy = NULL;
 	bool gotnvparams, gotnvsize;
 	size_t nvsize = 0;
+	size_t partialsz = 0;
+	nvlist_t *partialnv = NULL;
+	nvlist_t *filterednv = NULL;
 
 	if (flags & ~JAIL_GET_MASK)
 		return (EINVAL);
@@ -2384,6 +2389,21 @@ kern_jail_get(struct thread *td, struct uio *optuio, int flags)
 	else {
 		gotnvparams = true;
 	}
+
+	error = vfs_getopt(opts, "partial", &partialbuf, &partiallen);
+	if (error == ENOENT) {
+		// It is ok if "partial" is not among options
+	}
+	else if (error != 0) {
+		goto done;
+	}
+	else {
+		partialnv = nvlist_unpack(partialbuf, partiallen, 0);
+		if (partialnv == NULL) {
+			goto done;
+		}
+	}
+
 	/*
 	 * Find the prison specified by one of: lastjid, jid, name.
 	 */
@@ -2583,8 +2603,24 @@ kern_jail_get(struct thread *td, struct uio *optuio, int flags)
 	if (error != 0 && error != ENOENT)
 		goto done;
 
+	if (partialnv != NULL) {
+		// filterednv = filter_list(pr->nvparams, partialnv);
+		filterednv = pr->nvparams;
+		partialcopy = nvlist_pack(partialnv, &partialsz);
+		if (partialcopy == NULL) {
+			goto done;
+		}
+		error = vfs_setopt(opts, "partial", partialcopy, partialsz);
+		if (error != 0 && error != ENOENT) {
+			goto done;
+		}
+	}
 	if (gotnvparams) {
-		nvbuf = nvlist_pack(pr->nvparams, &nvsize);
+		if (filterednv == NULL) {
+			nvbuf = nvlist_pack(pr->nvparams, &nvsize);
+		} else {
+			nvbuf = nvlist_pack(filterednv, &nvsize);
+		}
 		if (nvbuf == NULL) {
 			error = EINVAL;
 			goto done;
@@ -2600,7 +2636,11 @@ kern_jail_get(struct thread *td, struct uio *optuio, int flags)
 			}
 		}
 	} else if (gotnvsize) {
-		nvsize = nvlist_size(pr->nvparams);
+		if (filterednv == NULL) {
+			nvsize = nvlist_size(pr->nvparams);
+		} else {
+			nvsize = nvlist_size(filterednv);
+		}
 		error = vfs_setopt(opts, "nvsize", &nvsize, sizeof(nvsize));
 		if (error != 0 && error != ENOENT) {
 			goto done;
@@ -2670,8 +2710,11 @@ kern_jail_get(struct thread *td, struct uio *optuio, int flags)
 		}
 	}
 	vfs_freeopts(opts);
-	if (nvbuf != NULL) {
-		free(nvbuf, M_PRISON);
+	// if (filterednv != NULL) {
+	// 	nvlist_destroy(filterednv);
+	// }
+	if (partialnv != NULL) {
+		nvlist_destroy(partialnv);
 	}
 	return (error);
 }
