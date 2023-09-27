@@ -250,8 +250,9 @@ jailparam_free(params, 2);
 free(hostname);
 .Ed
 .Pp
-Set and get nvparams of jail
-.Dq foo :
+The following example will search for jail named
+.Dq foo
+add one item to existing jail parameters and then read it back.
 .Bd -literal -offset indent
 #include <sys/sysctl.h>
 #include <sys/param.h>
@@ -268,10 +269,12 @@ main() {
 	int rc;
 	int jid;
 	size_t len;
-	struct iovec jiov[4];
+	struct iovec jiov[6];
 	nvlist_t *nvl = nvlist_create(0);
+	nvlist_t *partialnv = nvlist_create(0);
 
-	nvlist_add_string(nvl, "some", "thing");
+	nvlist_add_string(nvl, "my", "stuff");
+	nvlist_add_bool(nvl, "_partial", true);
 	jid = jail_getid("foo");
 	if (jid < 0) {
 		err(1, "jail_getid");
@@ -303,17 +306,23 @@ main() {
 	jiov[3].iov_base = &len;
 	jiov[3].iov_len = sizeof(len);
 
-	rc = jail_get(jiov, 4, 0);
+	jiov[4].iov_base = __DECONST(char *, "partial");
+	jiov[4].iov_len = sizeof("partial");
+	jiov[5].iov_base = nvlist_pack(partialnv, &len);
+	jiov[5].iov_len = len;
+
+	rc = jail_get(jiov, 6, 0);
 	if (rc < 0) {
 		err(1, "jail_get size");
 	}
 
+	nvlist_add_bool(partialnv, "some", true);
 	jiov[2].iov_base = __DECONST(char *, "nvparams");
 	jiov[2].iov_len = sizeof("nvparams");
 	jiov[3].iov_base = malloc(len);
 	jiov[3].iov_len = len;
 
-	rc = jail_get(jiov, 4, 0);
+	rc = jail_get(jiov, 6, 0);
 	if (rc < 0) {
 		err(1, "jail_get data");
 	}
@@ -330,7 +339,17 @@ main() {
 .Pp
 To compile the previous example
 .Lb libnv
-is needed.
+is needed.  It will remove existing jail parameter with the same name, if it
+exists, and it will add
+.Dq my=stuff
+to jail parameters.  The code without
+.Dq partial
+parts will remove all existing parameters and replace it with the nvlist sent
+through
+.Fn jail_set
+as
+.Dq nvparams
+parameter.
 .Sh ERRORS
 The
 .Nm jail
