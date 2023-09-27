@@ -2258,6 +2258,67 @@ get_next_prid(struct prison **insprp)
 	return (jid);
 }
 
+static void
+add_nvparam(nvlist_t *dst, const nvlist_t *src, const char *name) {
+	size_t size = 0;
+
+	if (nvlist_exists_null(src, name)) {
+		nvlist_add_null(dst, name);
+	} else if (nvlist_exists_bool(src, name)) {
+		nvlist_add_bool(dst, name, nvlist_get_bool(src, name));
+	} else if (nvlist_exists_number(src, name)) {
+		nvlist_add_number(dst, name, nvlist_get_number(src, name));
+	} else if (nvlist_exists_string(src, name)) {
+		nvlist_add_string(dst, name, nvlist_get_string(src, name));
+	} else if (nvlist_exists_nvlist(src, name)) {
+		nvlist_add_nvlist(dst, name, nvlist_get_nvlist(src, name));
+	} else if (nvlist_exists_bool_array(src, name)) {
+		const bool *b = nvlist_get_bool_array(src, name, &size);
+		nvlist_add_bool_array(dst, name, b, size);
+	} else if (nvlist_exists_number_array(src, name)) {
+		const uint64_t *n =
+			nvlist_get_number_array(src, name, &size);
+		nvlist_add_number_array(dst, name, n, size);
+	} else if (nvlist_exists_string_array(src, name)) {
+		const char * const *s =
+			nvlist_get_string_array(src, name, &size);
+		nvlist_add_string_array(dst, name, s, size);
+	} else if (nvlist_exists_nvlist_array(src, name)) {
+		const nvlist_t * const *nv =
+			nvlist_get_nvlist_array(src, name, &size);
+		nvlist_add_nvlist_array(dst, name, nv, size);
+	}
+}
+
+static nvlist_t *
+filter_list(const nvlist_t *data, const nvlist_t *partial) {
+	bool b;
+	int type = 0;
+	void *cookie = NULL;
+	nvlist_t *result = NULL;
+	const char *name = NULL;
+
+	if (data == NULL) {
+		return NULL;
+	}
+	if (partial == NULL || nvlist_empty(partial)) {
+		return nvlist_clone(data);
+	}
+	result = nvlist_create(0);
+	while ((name = nvlist_next(partial, &type, &cookie)) != NULL) {
+		b = dnvlist_get_bool(partial, name, false);
+		if (b) {
+			if (nvlist_exists(data, name)) {
+				add_nvparam(result, data, name);
+			} else {
+				nvlist_destroy(result);
+				return NULL;
+			}
+		}
+	}
+	return result;
+}
+
 /*
  * Find the next available ID for a renumbered dead prison.  This is the same
  * as get_next_prid, but counting backward from the end of the range.
@@ -2604,8 +2665,7 @@ kern_jail_get(struct thread *td, struct uio *optuio, int flags)
 		goto done;
 
 	if (partialnv != NULL) {
-		// filterednv = filter_list(pr->nvparams, partialnv);
-		filterednv = pr->nvparams;
+		filterednv = filter_list(pr->nvparams, partialnv);
 		partialcopy = nvlist_pack(partialnv, &partialsz);
 		if (partialcopy == NULL) {
 			goto done;
@@ -2710,9 +2770,9 @@ kern_jail_get(struct thread *td, struct uio *optuio, int flags)
 		}
 	}
 	vfs_freeopts(opts);
-	// if (filterednv != NULL) {
-	// 	nvlist_destroy(filterednv);
-	// }
+	if (filterednv != NULL) {
+		nvlist_destroy(filterednv);
+	}
 	if (partialnv != NULL) {
 		nvlist_destroy(partialnv);
 	}
