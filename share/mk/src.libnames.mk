@@ -195,6 +195,8 @@ _LIBRARIES=	\
 		ngatm \
 		nv \
 		nvpair \
+		nvtpp \
+		nvtree \
 		opencsd \
 		pam \
 		panel \
@@ -674,6 +676,12 @@ LIBIPF?=	${LIBIPFDIR}/libipf${PIE_SUFFIX}.a
 
 LIBNVDIR=	${_LIB_OBJTOP}/lib/libnv
 LIBNV?=		${LIBNVDIR}/libnv${PIE_SUFFIX}.a
+
+LIBNVTPPDIR=	${_LIB_OBJTOP}/lib/libnvtpp
+LIBNVTPP?=	${LIBNVTREEDIR}/libnvtpp${PIE_SUFFIX}.a
+
+LIBNVTREEDIR=	${_LIB_OBJTOP}/lib/libnvtree
+LIBNVTREE?=	${LIBNVTREEDIR}/libnvtree${PIE_SUFFIX}.a
 
 LIBISCSIUTILDIR=	${_LIB_OBJTOP}/lib/libiscsiutil
 LIBISCSIUTIL?=	${LIBISCSIUTILDIR}/libiscsiutil${PIE_SUFFIX}.a
