@@ -76,6 +76,7 @@ SUBDIR=	${SUBDIR_BOOTSTRAP} \
 	libnetbsd \
 	libnetmap \
 	libnv \
+	libnvtree \
 	libopenbsd \
 	libpam \
 	libpathconv \
