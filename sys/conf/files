@@ -641,6 +641,7 @@ contrib/libnv/cnvlist.c		standard
 contrib/libnv/dnvlist.c		standard
 contrib/libnv/nvlist.c		standard
 contrib/libnv/bsd_nvpair.c		standard
+contrib/libnvtree/nvtree.c		standard
 # xz
 dev/xz/xz_mod.c	optional xz \
 	compile-with "${NORMAL_C} -DXZ_USE_CRC64 -I$S/contrib/xz-embedded/freebsd/ -I$S/contrib/xz-embedded/linux/lib/xz/ -I$S/contrib/xz-embedded/linux/include/linux/"

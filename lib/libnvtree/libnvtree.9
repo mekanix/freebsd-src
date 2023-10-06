@@ -1,0 +1,283 @@
+.\"
+.\" Copyright (c) 2023 Goran Mekić <meka@tilda.center>
+.\" All rights reserved.
+.\"
+.\" Redistribution and use in source and binary forms, with or without
+.\" modification, are permitted provided that the following conditions
+.\" are met:
+.\" 1. Redistributions of source code must retain the above copyright
+.\"    notice, this list of conditions and the following disclaimer.
+.\" 2. Redistributions in binary form must reproduce the above copyright
+.\"    notice, this list of conditions and the following disclaimer in the
+.\"    documentation and/or other materials provided with the distribution.
+.\"
+.\" THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+.\" ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+.\" IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+.\" ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE LIABLE
+.\" FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+.\" DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+.\" OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+.\" HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+.\" LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+.\" OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+.\" SUCH DAMAGE.
+.\"
+.Dd October 22, 2023
+.Dt NVTREE 9
+.Os
+.Sh NAME
+.Nm nvtree_add,
+.Nm nvtree_add_arr,
+.Nm nvtree_add_tree,
+.Nm nvtree_array,
+.Nm nvtree_bool,
+.Nm nvtree_create,
+.Nm nvtree_destroy,
+.Nm nvtree_find,
+.Nm nvtree_nested,
+.Nm nvtree_null,
+.Nm nvtree_number,
+.Nm nvtree_pack,
+.Nm nvtree_pair,
+.Nm nvtree_rem_arr
+.Nm nvtree_rem_tree,
+.Nm nvtree_remove,
+.Nm nvtree_size,
+.Nm nvtree_string,
+.Nm nvtree_unpack,
+.Nd "library for name/value pairs"
+.Sh LIBRARY
+.Lb libnvtree
+.Sh SYNOPSIS
+.In sys/nvtree.h
+.Ft "nvtree_t *"
+.Fn nvtree_create
+.Ft void
+.Fn nvtree_destroy "nvtree_t *nvt"
+.Ft size_t
+.Fn nvtree_size "const nvtree_t *nvt"
+.Ft "void *"
+.Fn nvtree_pack "const nvtree_t *nvt" "size_t *sizep"
+.Ft "nvtree_t *"
+.Fn nvtree_unpack "const void *buf" "size_t size"
+.Ft "nvtpair_t *"
+.Fn nvtree_add "nvtree_t *root" "nvtpair_t *pair"
+.Ft "int"
+.Fn nvtree_add_arr "nvtree_t *array" "nvtpair_t *pair"
+.Ft "nvtpair_t *"
+.Fn nvtree_add_tree "nvtree_t *root" "nvtpair_t *pair"
+.Ft "nvtpair_t *"
+.Fn nvtree_array "const char *name" "size_t type"
+.Ft "nvtpair_t *"
+.Fn nvtree_bool "const char *name" "bool value"
+.Ft "nvtpair_t *"
+.Fn nvtree_find "const nvtree_t *root" "const char *name"
+.Ft "nvtpair_t *"
+.Fn nvtree_nested "const char *name" "const nvtree_t *value"
+.Ft "nvtpair_t *"
+.Fn nvtree_null "const char *name"
+.Ft "nvtpair_t *"
+.Fn nvtree_number "const char *name" "uint64_t value"
+.Ft "nvtpair_t *"
+.Fn nvtree_pair "const char *name"
+.Ft int
+.Fn nvtree_rem_arr "nvtpair_t *array" "nvtpair_t *pair"
+.Ft "nvtpair_t *"
+.Fn nvtree_rem_tree "nvtpair_t *root" "nvtpair_t *pair"
+.Ft "nvtpair_t *"
+.Fn nvtree_remove "nvtpair_t *root" "nvtpair_t *pair"
+.Ft "nvtpair_t *"
+.Fn nvtree_string "const char *name" "const char *value"
+
+.Sh DESCRIPTION
+The
+.Nm libnvtree
+library allows to easily manage name value pairs as well as send and receive
+them over sockets.
+.Bd -literal -offset indent
+typedef union {
+	bool b;
+	uint64_t num;
+	char *string;
+	struct nvtree_t *tree;
+	struct nvtarray_t *array;
+} nvtvalue_t;
+
+typedef struct nvtpair_t {
+	TAILQ_ENTRY(nvtpair_t) next;
+	RB_ENTRY(nvtpair_t) entry;
+	char *name;
+	size_t type;
+	nvtvalue_t value;
+} nvtpair_t;
+
+typedef TAILQ_HEAD(nvtarray_t, nvtpair_t) nvtarray_t;
+typedef RB_HEAD(nvtree_t, nvtpair_t) nvtree_t;
+.Ed
+.Pp
+A group (tree) of name value pairs is called an
+.Nm nvtree .
+In its packed form,
+.Nm nvtree
+is compatible with
+.Nm nvlist .
+That means that calling
+.Fn nvtree_pack "root" "&size"
+is equvivalent of
+.Fn nvlist_pack "root" "&size" "0" .
+Same is true for unpack functions.
+.Pp
+Main structures to work with are
+.Nm nvtree_t
+and
+.Nm nvtpair_t .
+The
+.Fn nvtree_create
+will allocate space for the structure and initialize it. When the tree is no
+longer needed,
+.Fn nvtree_destroy
+should be called to free the resources.
+.Pp
+Functions
+.Nm nvtree_array,
+.Nm nvtree_bool,
+.Nm nvtree_nested,
+.Nm nvtree_null,
+.Nm nvtree_number,
+.Nm nvtree_pair,
+and
+.Nm nvtree_string
+take name (string) as their first argument, and all except
+.Nm nvtree_array
+and
+.Nm nvtree_null
+take value of apropriate type as second argument.  They all allocate,
+initialize and return
+.Nm nvtpair * .
+For
+.Nm nvtree_array
+second argument is array type, like
+.Nm NVTREE_BOOL,
+.Nm NVTREE_NUMBER,
+.Nm NVTREE_NESTED,
+or
+.Nm NVTREE_STRING.
+.Pp
+Functions
+.Fn nvtree_add ,
+.Fn nvtree_add_tree ,
+.Fn nvtree_add_arr ,
+.Fn nvtree_remove ,
+.Fn nvtree_rem_tree ,
+and
+.Fn nvtree_rem_arr
+serve the purpose of adding or removing a pair from the tree. For simple types
+.Fn nvtree_add
+and
+.Fn nvtree_remove
+are used and their first argument is tree that pair is being added to, second
+argument is the pair to add.  Return value of
+.Fn nvtree_add
+is NULL if pair with such name doesn't already exist, or pointer to existing
+pair otherwise.  Return value of
+.Fn nvtree_remove
+is NULL if there is no such pair present, or pointer to the pair that was just
+removed from the tree.  Return value of
+.Fn nvtree_add_arr
+is 0 on success, -1 if first argument is a pair that is not array and -2 if
+array and pair types do not match.  Return value of
+.Fn nvtree_remove_arr
+is 0 on success, -1 if first argument is a pair that is not array and -2 if
+array and pair types do not match.  Return value of
+.Fn nvtree_add_tree
+is NULL on success or pointer to the pair with the same name.  Return value of
+.Fn nvtree_rem_tree
+is NULL if there is no such pair present, or pointer to the pair that was just
+removed from the tree.
+.Pp
+The
+.Fn nvtree_find
+searches the tree provided as first argument for an element with a name
+provided as second argument. The returned value is pointer to a pair that was
+found or NULL if such pair does not exist.
+.Pp
+The
+.Fn nvtree_pack
+and
+.Fn nvtree_unpack
+functions serialize and deserialize the data. In it's packed form, tree is just
+an array of bytes.  Calling
+.Fn nvtree_pack
+with the tree as the first argument will set second argument,
+.Nm size ,
+to the size of the array of bytes that is returned.  Such array of bytes can be
+used by
+.Fn nvtree_unpack
+to recreate the tree.  Both these functions handle the byte-order conversions,
+so the binary buffer can be packed/unpacked by the hosts with the different
+endianness.  As the byte array is binary compatible with
+.Nm nvlist ,
+pack and upack functions can be used with data produced by either
+.Nm nvlist
+or
+.Nm nvtree
+with one rule: nvlist must have
+.Nm 0
+as the value of the flags.
+.Sh EXAMPLES
+The following example demonstrates how to prepare an nvtree, pack it and unpack
+it.
+.Bd -literal
+#include <sys/nvtree.h>
+
+int
+main() {
+	nvtree_t *root = NULL;
+	void *buf = NULL;
+	size_t size = 0;
+
+	root = nvtree_create();
+	nvtree_add(root, nvtree_null("null"));
+	nvtree_add(root, nvtree_bool("bool", true));
+	nvtree_add(root, nvtree_number("number", 5));
+	nvtree_add(root, nvtree_string("string", "value"));
+	buf = nvtree_pack(root, &size);
+	nvtree_destroy(root);
+	root = nvtree_unpack(buf, size);
+	nvtree_destroy(root);
+
+	return 0;
+}
+.Ed
+.Pp
+It is possible to recursively traverse the whole tree
+.Bd -literal
+void
+dump_tree(nvtree_t *root) {
+	nvtpair_t *node = NULL;
+	RB_FOREACH(node, nvtree_t, root) {
+		printf("%s\\n", node->name);
+		if ((node->type & NVTREE_ARRAY) != 0) {
+			TAILQ_FOREACH(node, pair->value.array, next) {
+				if (node->type == NVTREE_NESTED) {
+					dump_tree(node->value.tree);
+				} else {
+					printf("%s\\n", node->name);
+				}
+			}
+		} else if ((node->type == NVTREE_NESTED)) {
+			dump_tree(node->value.tree);
+		}
+	}
+}
+.Sh SEE ALSO
+.Xr nvlist 9
+.Xr tree 3
+.Xr queue 3
+.Sh AUTHORS
+.An -nosplit
+The
+.Nm libnvtree
+library was implemented by
+.An Goran Mekić Aq Mt meka@tilda.center
