@@ -20,34 +20,40 @@
 #define NVTREE_ARRAY	0x100
 #define NVTREE_NESTED	0x200
 
-struct nvtree_t;
+struct nvthead_t;
 struct nvtpair_t;
 
 typedef union {
 	bool b;
 	uint64_t num;
 	char *string;
-	struct nvtree_t *tree;
+	struct nvthead_t *tree;
 	struct nvtarray_t *array;
 } nvtvalue_t;
 
 typedef struct nvtpair_t {
-	TAILQ_ENTRY(nvtpair_t) next;
-	RB_ENTRY(nvtpair_t) entry;
-	char *name;
-	size_t type;
-	nvtvalue_t value;
+	TAILQ_ENTRY(nvtpair_t)	next;
+	RB_ENTRY(nvtpair_t)	entry;
+	uint8_t			flags;
+	char *			name;
+	size_t			type;
+	nvtvalue_t		value;
 } nvtpair_t;
 
 typedef TAILQ_HEAD(nvtarray_t, nvtpair_t) nvtarray_t;
-typedef RB_HEAD(nvtree_t, nvtpair_t) nvtree_t;
+typedef RB_HEAD(nvthead_t, nvtpair_t) nvthead_t;
+
+typedef struct nvtree_t {
+	uint8_t		flags;
+	nvthead_t *	head;
+} nvtree_t;
 
 __BEGIN_DECLS
 
 int attr_name_compare(const nvtpair_t *a1, const nvtpair_t *a2);
-RB_PROTOTYPE(nvtree_t, nvtpair_t, entry, attr_name_compare)
+RB_PROTOTYPE(nvthead_t, nvtpair_t, entry, attr_name_compare)
 
-nvtree_t *	nvtree_create	(void);
+nvtree_t *	nvtree_create	(const uint8_t flags);
 nvtpair_t *	nvtree_pair	(const char *name);
 nvtpair_t *	nvtree_number	(const char *name, const uint64_t value);
 nvtpair_t *	nvtree_bool	(const char *name, const bool value);
@@ -55,7 +61,7 @@ nvtpair_t *	nvtree_string	(const char *name, const char *value);
 nvtpair_t *	nvtree_null	(const char *name);
 nvtpair_t *	nvtree_tree	(const char *name);
 nvtpair_t *	nvtree_array	(const char *name);
-nvtpair_t *	nvtree_nested	(const char *name);
+nvtpair_t *	nvtree_nested	(const char *name, const uint8_t flags);
 nvtpair_t *	nvtree_find	(const nvtree_t *root, const char *name);
 nvtpair_t *	nvtree_add	(nvtree_t *root, nvtpair_t *pair);
 nvtpair_t *	nvtree_remove	(nvtree_t *root, nvtpair_t *pair);

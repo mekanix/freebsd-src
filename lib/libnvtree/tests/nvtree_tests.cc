@@ -8,7 +8,7 @@
 ATF_TEST_CASE_WITHOUT_HEAD(nvtree_create);
 ATF_TEST_CASE_BODY(nvtree_create)
 {
-	nvtree_t *root = nvtree_create();
+	nvtree_t *root = nvtree_create(0);
 	ATF_REQUIRE(root != NULL);
 	// ATF_REQUIRE_EQ(nvlist_error(nvl), 0);
 	nvtree_destroy(root);
@@ -18,7 +18,7 @@ ATF_TEST_CASE_WITHOUT_HEAD(nvtree_find);
 ATF_TEST_CASE_BODY(nvtree_find)
 {
 	const char *name = "number";
-	nvtree_t *root = nvtree_create();
+	nvtree_t *root = nvtree_create(0);
 	nvtpair_t *pair = nvtree_number(name, 5);
 
 	ATF_REQUIRE(nvtree_add(root, pair) == NULL);
@@ -32,7 +32,7 @@ ATF_TEST_CASE_BODY(nvtree_pack)
 {
 	size_t size = 0;
 	void *buf = NULL;
-	nvtree_t *root = nvtree_create();
+	nvtree_t *root = nvtree_create(0);
 	nvtpair_t *pair = nvtree_number("number", 5);
 	nvlist_t *nvl = NULL;
 

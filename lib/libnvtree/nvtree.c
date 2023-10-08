@@ -8,7 +8,7 @@
 #include <string.h>
 #include <unistd.h>
 
-#include "nvtree.h"
+#include "./nvtree.h"
 
 #define	NVTREE_HEADER_MAGIC	0x6c
 #define	NVTREE_HEADER_VERSION	0x00
@@ -41,13 +41,21 @@ attr_name_compare(const nvtpair_t *a1, const nvtpair_t *a2) {
 	return strcmp(a1->name, a2->name);
 }
 
-RB_GENERATE(nvtree_t, nvtpair_t, entry, attr_name_compare)
+RB_GENERATE(nvthead_t, nvtpair_t, entry, attr_name_compare)
+
+static nvthead_t *
+_nvtree_create(void) {
+	nvthead_t *root = NULL;
+	root = malloc(sizeof(nvthead_t));
+	RB_INIT(root);
+	return root;
+}
 
 nvtree_t *
-nvtree_create(void) {
+nvtree_create(const uint8_t flags) {
 	nvtree_t *root = malloc(sizeof(nvtree_t));
-	memset(root, 0, sizeof(nvtree_t));
-	RB_INIT(root);
+	root->head = _nvtree_create();
+	root->flags = flags;
 	return root;
 }
 
@@ -111,21 +119,22 @@ nvtree_array(const char *name) {
 }
 
 nvtpair_t *
-nvtree_nested(const char *name) {
+nvtree_nested(const char *name, const uint8_t flags) {
 	nvtpair_t *node = nvtree_pair(name);
 	node->type = NVTREE_NESTED;
-	node->value.tree = nvtree_create();
+	node->value.tree = malloc(sizeof(nvthead_t *));
+	node->flags = flags;
 	return node;
 }
 
-size_t
-nvtree_size(const nvtree_t *p) {
+static size_t
+_nvtree_size(const nvthead_t *p) {
 	nvtpair_t *attr = NULL;
 	nvtpair_t *node = NULL;
 	uint64_t nitems = 0;
 	size_t size = sizeof(struct nvtree_header);
 
-	RB_FOREACH(attr, nvtree_t, __DECONST(nvtree_t *, p)) {
+	RB_FOREACH(attr, nvthead_t, __DECONST(nvthead_t *, p)) {
 		size += sizeof(struct nvtpair_header);
 		if (attr->name != NULL) {
 			size += strlen(attr->name) + 1;
@@ -154,7 +163,7 @@ nvtree_size(const nvtree_t *p) {
 				}
 				case NVTREE_NESTED: {
 					TAILQ_FOREACH(node, attr->value.array, next) {
-						size += nvtree_size(node->value.tree) + sizeof(struct nvtpair_header) + 1;
+						size += _nvtree_size(node->value.tree) + sizeof(struct nvtpair_header) + 1;
 					}
 					break;
 				}
@@ -174,7 +183,7 @@ nvtree_size(const nvtree_t *p) {
 					break;
 				}
 				case NVTREE_NESTED: {
-					size += nvtree_size(attr->value.tree) + sizeof(struct nvtpair_header) + 1;
+					size += _nvtree_size(attr->value.tree) + sizeof(struct nvtpair_header) + 1;
 					break;
 				}
 			}
@@ -183,8 +192,16 @@ nvtree_size(const nvtree_t *p) {
 	return size;
 }
 
+size_t
+nvtree_size(const nvtree_t *root) {
+	if (root == NULL) {
+		return 0;
+	}
+	return _nvtree_size(root->head);
+}
+
 static void *
-_nvtree_pack(const nvtree_t *p, uint8_t *buf, size_t size, bool root) {
+_nvtree_pack(const nvthead_t *p, uint8_t *buf, size_t size, bool root, uint8_t flags) {
 	uint8_t *ptr = NULL;
 	nvtpair_t *attr = NULL;
 	struct nvtree_header nvt = {0};
@@ -196,7 +213,7 @@ _nvtree_pack(const nvtree_t *p, uint8_t *buf, size_t size, bool root) {
 
 	nvt.magic = NVTREE_HEADER_MAGIC;
 	nvt.version = NVTREE_HEADER_VERSION;
-	nvt.flags = 0;
+	nvt.flags = flags;
 	nvt.descriptors = 0;
 	if (root) {
 		nvt.size = size - sizeof(nvt);
@@ -205,7 +222,7 @@ _nvtree_pack(const nvtree_t *p, uint8_t *buf, size_t size, bool root) {
 	}
 	memcpy(buf, &nvt, sizeof(nvt));
 	ptr = buf + sizeof(nvt);
-	RB_FOREACH(attr, nvtree_t, __DECONST(nvtree_t *, p)) {
+	RB_FOREACH(attr, nvthead_t, __DECONST(nvthead_t *, p)) {
 		nvp.namesize = strlen(attr->name) + 1;
 		nvp.nitems = 0;
 		if (attr->type & NVTREE_ARRAY) {
@@ -276,8 +293,8 @@ _nvtree_pack(const nvtree_t *p, uint8_t *buf, size_t size, bool root) {
 					memcpy(ptr, attr->name, nvp.namesize);
 					ptr += nvp.namesize;
 					TAILQ_FOREACH(node, attr->value.array, next) {
-						s = nvtree_size(node->value.tree);
-						_nvtree_pack(node->value.tree, ptr, s, false);
+						s = _nvtree_size(node->value.tree);
+						_nvtree_pack(node->value.tree, ptr, s, false, nvt.flags);
 						ptr += s;
 					}
 					break;
@@ -291,8 +308,8 @@ _nvtree_pack(const nvtree_t *p, uint8_t *buf, size_t size, bool root) {
 			ptr += sizeof(nvp);
 			memcpy(ptr, attr->name, nvp.namesize);
 			ptr += nvp.namesize;
-			nvp.datasize = nvtree_size(attr->value.tree);
-			_nvtree_pack(attr->value.tree, ptr, nvp.datasize, false);
+			nvp.datasize = _nvtree_size(attr->value.tree);
+			_nvtree_pack(attr->value.tree, ptr, nvp.datasize, false, nvt.flags);
 			memcpy(bytes, &nvp, sizeof(nvp));
 			ptr += nvp.datasize;
 			nvp.type = 0xff;
@@ -354,21 +371,28 @@ _nvtree_pack(const nvtree_t *p, uint8_t *buf, size_t size, bool root) {
 
 void *
 nvtree_pack(const nvtree_t *root, size_t *size) {
+	if (root == NULL) {
+		*size = 0;
+		return NULL;
+	}
 	*size = nvtree_size(root);
+	if (*size == 0) {
+		return NULL;
+	}
 	uint8_t *buf = malloc(*size);
-	return _nvtree_pack(root, buf, *size, true);
+	return _nvtree_pack(root->head, buf, *size, true, root->flags);
 }
 
-int
-nvtree_destroy(nvtree_t *root) {
+static int
+_nvtree_destroy(nvthead_t *root) {
 	nvtpair_t *pair = NULL;
 	nvtpair_t *tmppair = NULL;
 	nvtpair_t *next = NULL;
 	int rc = 0;
 
-	for (pair = RB_MIN(nvtree_t, root); pair != NULL; pair = next) {
-		next = RB_NEXT(nvtree_t, root, pair);
-		pair = RB_REMOVE(nvtree_t, root, pair);
+	for (pair = RB_MIN(nvthead_t, root); pair != NULL; pair = next) {
+		next = RB_NEXT(nvthead_t, root, pair);
+		pair = RB_REMOVE(nvthead_t, root, pair);
 		if (pair == NULL) {
 			return 1;
 		}
@@ -376,7 +400,7 @@ nvtree_destroy(nvtree_t *root) {
 			while ((tmppair = TAILQ_FIRST(pair->value.array)) != NULL) {
 				TAILQ_REMOVE(pair->value.array, tmppair, next);
 				if (pair->type & NVTREE_NESTED) {
-					rc = nvtree_destroy(tmppair->value.tree);
+					rc = _nvtree_destroy(tmppair->value.tree);
 					if (rc < 0) {
 						return rc;
 					}
@@ -390,7 +414,7 @@ nvtree_destroy(nvtree_t *root) {
 				free(tmppair);
 			}
 		} else if (pair->type & NVTREE_NESTED) {
-			rc = nvtree_destroy(pair->value.tree);
+			rc = _nvtree_destroy(pair->value.tree);
 			if (rc < 0) {
 				return rc;
 			}
@@ -407,10 +431,22 @@ nvtree_destroy(nvtree_t *root) {
 	return 0;
 }
 
-nvtree_t *
-nvtree_unpack(const uint8_t *buf, size_t size) {
+int
+nvtree_destroy(nvtree_t *root) {
+	int rc = 0;
+
+	if (root == NULL) {
+		return -1;
+	}
+	rc = _nvtree_destroy(root->head);
+	free(root);
+	return rc;
+}
+
+static nvthead_t *
+_nvtree_unpack(const uint8_t *buf, size_t size) {
 	char *name = NULL;
-	nvtree_t *root = NULL;
+	nvthead_t *root = NULL;
 	nvtpair_t *pair = NULL;
 	uint8_t *ptr = __DECONST(uint8_t *, buf);
 	struct nvtree_header thead;
@@ -424,7 +460,7 @@ nvtree_unpack(const uint8_t *buf, size_t size) {
 		return NULL;
 	}
 	ptr += sizeof(thead);
-	root = nvtree_create();
+	root = _nvtree_create();
 	if (thead.size == 0) {
 		return root;
 	}
@@ -440,7 +476,7 @@ nvtree_unpack(const uint8_t *buf, size_t size) {
 		switch(phead.type) {
 			case NV_TYPE_NULL: {
 				pair = nvtree_null(name);
-				if (RB_INSERT(nvtree_t, root, pair) != NULL) {
+				if (RB_INSERT(nvthead_t, root, pair) != NULL) {
 					goto error;
 				}
 				break;
@@ -449,7 +485,7 @@ nvtree_unpack(const uint8_t *buf, size_t size) {
 				bool b;
 				memcpy(&b, ptr, sizeof(b));
 				pair = nvtree_bool(name, b);
-				if (RB_INSERT(nvtree_t, root, pair) != NULL) {
+				if (RB_INSERT(nvthead_t, root, pair) != NULL) {
 					goto error;
 				}
 				ptr += sizeof(b);
@@ -459,7 +495,7 @@ nvtree_unpack(const uint8_t *buf, size_t size) {
 				uint64_t num = 0;
 				memcpy(&num, ptr, sizeof(num));
 				pair = nvtree_number(name, num);
-				if (RB_INSERT(nvtree_t, root, pair) != NULL) {
+				if (RB_INSERT(nvthead_t, root, pair) != NULL) {
 					goto error;
 				}
 				ptr += sizeof(num);
@@ -468,19 +504,19 @@ nvtree_unpack(const uint8_t *buf, size_t size) {
 			case NV_TYPE_STRING: {
 				char *string = (char *)ptr;
 				pair = nvtree_string(name, string);
-				if (RB_INSERT(nvtree_t, root, pair) != NULL) {
+				if (RB_INSERT(nvthead_t, root, pair) != NULL) {
 					goto error;
 				}
 				ptr += strlen(string) + 1;
 				break;
 			}
 			case NV_TYPE_NVLIST: {
-				pair = nvtree_nested(name);
-				pair->value.tree = nvtree_unpack(ptr, ptr - buf);
-				if (RB_INSERT(nvtree_t, root, pair) != NULL) {
+				pair = nvtree_nested(name, 0);
+				pair->value.tree = _nvtree_unpack(ptr, ptr - buf);
+				if (RB_INSERT(nvthead_t, root, pair) != NULL) {
 					goto error;
 				}
-				ptr += nvtree_size(pair->value.tree);
+				ptr += _nvtree_size(pair->value.tree);
 				break;
 			}
 			case 0xff: {
@@ -494,8 +530,26 @@ done:
 	return root;
 
 error:
-	nvtree_destroy(root);
+	_nvtree_destroy(root);
 	return NULL;
+}
+
+nvtree_t *
+nvtree_unpack(const uint8_t *buf, size_t size) {
+	nvtree_t *root = NULL;
+	struct nvtree_header thead;
+
+	if (buf == NULL) {
+		return NULL;
+	}
+	if (size == 0) {
+		return NULL;
+	}
+	memcpy(&thead, buf, sizeof(thead));
+	root = malloc(sizeof(nvtree_t));
+	root->head = _nvtree_unpack(buf, size);
+	root->flags = thead.flags;
+	return root;
 }
 
 nvtpair_t *
@@ -503,22 +557,22 @@ nvtree_find(const nvtree_t *root, const char *name) {
 	nvtpair_t key = {
 		.name = __DECONST(char *, name)
 	};
-	return RB_FIND(nvtree_t, __DECONST(nvtree_t *, root), &key);
+	return RB_FIND(nvthead_t, root->head, &key);
 }
 
 nvtpair_t *
 nvtree_add(nvtree_t *root, nvtpair_t *pair) {
-	return RB_INSERT(nvtree_t, root, pair);
+	return RB_INSERT(nvthead_t, root->head, pair);
 }
 
 nvtpair_t *
 nvtree_remove(nvtree_t *root, nvtpair_t *pair) {
-	return RB_REMOVE(nvtree_t, root, pair);
+	return RB_REMOVE(nvthead_t, root->head, pair);
 }
 
 nvtpair_t *
 nvtree_add_tree(nvtpair_t *tree, nvtpair_t *pair) {
-	return RB_INSERT(nvtree_t, tree->value.tree, pair);
+	return RB_INSERT(nvthead_t, tree->value.tree, pair);
 }
 
 int
@@ -535,7 +589,7 @@ nvtree_add_arr(nvtpair_t *array, nvtpair_t *pair) {
 
 nvtpair_t *
 nvtree_rem_tree(nvtpair_t *tree, nvtpair_t *pair) {
-	return RB_REMOVE(nvtree_t, tree->value.tree, pair);
+	return RB_REMOVE(nvthead_t, tree->value.tree, pair);
 }
 
 int
