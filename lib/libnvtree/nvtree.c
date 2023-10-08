@@ -501,12 +501,17 @@ error:
 nvtpair_t *
 nvtree_find(const nvtree_t *root, const char *name) {
 	nvtpair_t key = {
-		.name = strdup(name)
+		.name = __DECONST(char *, name)
 	};
 	return RB_FIND(nvtree_t, __DECONST(nvtree_t *, root), &key);
 }
 
 nvtpair_t *
-nvtree_add(nvtree_t *root, const nvtpair_t *pair) {
-	return RB_INSERT(nvtree_t, root, __DECONST(nvtpair_t *, pair));
+nvtree_add(nvtree_t *root, nvtpair_t *pair) {
+	return RB_INSERT(nvtree_t, root, pair);
+}
+
+nvtpair_t *
+nvtree_remove(nvtree_t *root, nvtpair_t *pair) {
+	return RB_REMOVE(nvtree_t, root, pair);
 }
