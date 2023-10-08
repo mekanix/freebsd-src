@@ -515,3 +515,37 @@ nvtpair_t *
 nvtree_remove(nvtree_t *root, nvtpair_t *pair) {
 	return RB_REMOVE(nvtree_t, root, pair);
 }
+
+nvtpair_t *
+nvtree_add_tree(nvtpair_t *tree, nvtpair_t *pair) {
+	return RB_INSERT(nvtree_t, tree->value.tree, pair);
+}
+
+int
+nvtree_add_arr(nvtpair_t *array, nvtpair_t *pair) {
+	if (array->type & NVTREE_ARRAY) {
+		return -1;
+	}
+	if ((array->type & ~NVTREE_ARRAY) != pair->type) {
+		return -1;
+	}
+	TAILQ_INSERT_TAIL(array->value.array, pair, next);
+	return 0;
+}
+
+nvtpair_t *
+nvtree_rem_tree(nvtpair_t *tree, nvtpair_t *pair) {
+	return RB_REMOVE(nvtree_t, tree->value.tree, pair);
+}
+
+int
+nvtree_rem_arr(nvtpair_t *array, nvtpair_t *pair) {
+	if (array->type & NVTREE_ARRAY) {
+		return -1;
+	}
+	if ((array->type & ~NVTREE_ARRAY) != pair->type) {
+		return -1;
+	}
+	TAILQ_REMOVE(array->value.array, pair, next);
+	return 0;
+}

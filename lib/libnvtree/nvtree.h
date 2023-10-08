@@ -63,6 +63,10 @@ size_t		nvtree_size	(const nvtree_t *root);
 void *		nvtree_pack	(const nvtree_t *root, size_t *size);
 nvtree_t *	nvtree_unpack	(const uint8_t *buf, size_t size);
 int		nvtree_destroy	(nvtree_t *root);
+nvtpair_t *	nvtree_add_tree	(nvtpair_t *tree, nvtpair_t *pair);
+int		nvtree_add_arr	(nvtpair_t *array, nvtpair_t *pair);
+nvtpair_t *	nvtree_rem_tree	(nvtpair_t *tree, nvtpair_t *pair);
+int		nvtree_rem_arr	(nvtpair_t *array, nvtpair_t *pair);
 
 __END_DECLS
 
