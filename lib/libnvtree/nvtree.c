@@ -52,7 +52,7 @@ nvtree_create(void) {
 }
 
 nvtpair_t *
-nvtree_pair(char *name) {
+nvtree_pair(const char *name) {
 	nvtpair_t *node = malloc(sizeof(nvtpair_t));
 	memset(node, 0, sizeof(nvtpair_t));
 	if (name != NULL && name[0] != '\0') {
@@ -62,7 +62,7 @@ nvtree_pair(char *name) {
 }
 
 nvtpair_t *
-nvtree_number(char *name, uint64_t value) {
+nvtree_number(const char *name, const uint64_t value) {
 	nvtpair_t *node = nvtree_pair(name);
 	node->type = NVTREE_NUMBER;
 	node->value.num = value;
@@ -70,7 +70,7 @@ nvtree_number(char *name, uint64_t value) {
 }
 
 nvtpair_t *
-nvtree_bool(char *name, bool value) {
+nvtree_bool(const char *name, const bool value) {
 	nvtpair_t *node = nvtree_pair(name);
 	node->type = NVTREE_BOOL;
 	node->value.b = value;
@@ -78,7 +78,7 @@ nvtree_bool(char *name, bool value) {
 }
 
 nvtpair_t *
-nvtree_string(char *name, char *value) {
+nvtree_string(const char *name, const char *value) {
 	nvtpair_t *node = nvtree_pair(name);
 	node->type = NVTREE_STRING;
 	node->value.string = strdup(value);
@@ -86,14 +86,14 @@ nvtree_string(char *name, char *value) {
 }
 
 nvtpair_t *
-nvtree_null(char *name) {
+nvtree_null(const char *name) {
 	nvtpair_t *node = nvtree_pair(name);
 	node->type = NVTREE_NULL;
 	return node;
 }
 
 nvtpair_t *
-nvtree_tree(char *name) {
+nvtree_tree(const char *name) {
 	nvtpair_t *node = nvtree_pair(name);
 	node->type = NVTREE_NESTED;
 	node->value.tree = malloc(sizeof(nvtree_t));
@@ -102,7 +102,7 @@ nvtree_tree(char *name) {
 }
 
 nvtpair_t *
-nvtree_array(char *name) {
+nvtree_array(const char *name) {
 	nvtpair_t *node = nvtree_pair(name);
 	node->type = NVTREE_ARRAY;
 	node->value.array = malloc(sizeof(nvtarray_t));
@@ -111,7 +111,7 @@ nvtree_array(char *name) {
 }
 
 nvtpair_t *
-nvtree_nested(char *name) {
+nvtree_nested(const char *name) {
 	nvtpair_t *node = nvtree_pair(name);
 	node->type = NVTREE_NESTED;
 	node->value.tree = nvtree_create();
@@ -496,4 +496,17 @@ done:
 error:
 	nvtree_destroy(root);
 	return NULL;
+}
+
+nvtpair_t *
+nvtree_find(const nvtree_t *root, const char *name) {
+	nvtpair_t key = {
+		.name = strdup(name)
+	};
+	return RB_FIND(nvtree_t, __DECONST(nvtree_t *, root), &key);
+}
+
+nvtpair_t *
+nvtree_add(nvtree_t *root, const nvtpair_t *pair) {
+	return RB_INSERT(nvtree_t, root, __DECONST(nvtpair_t *, pair));
 }

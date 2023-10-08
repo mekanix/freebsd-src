@@ -7,12 +7,10 @@ PACKAGE=	runtime
 LIB=		nvtree
 CFLAGS+=	-I${SRCTOP}/sys
 
-SRCS=	${LIB}.c
-INCS=	${LIB}.h
-
-CFLAGS+=-I${.CURDIR}
+SRCS+=	${LIB}.c
+INCS+=	${LIB}.h
 
 HAS_TESTS=
-SUBDIR.${MK_TESTS}+= tests
+SUBDIR.${MK_TESTS}+=	tests
 
 .include <bsd.lib.mk>
