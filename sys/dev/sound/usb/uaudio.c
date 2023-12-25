@@ -96,7 +96,7 @@
 static int uaudio_default_rate = 0;		/* use rate list */
 static int uaudio_default_bits = 32;
 static int uaudio_default_channels = 0;		/* use default */
-static int uaudio_buffer_ms = 2;
+static int uaudio_buffer_ms = 4;
 static bool uaudio_handle_hid = true;
 
 static SYSCTL_NODE(_hw_usb, OID_AUTO, uaudio, CTLFLAG_RW | CTLFLAG_MPSAFE, 0,
@@ -123,8 +123,8 @@ uaudio_buffer_ms_sysctl(SYSCTL_HANDLER_ARGS)
 
 	if (val > 8)
 		val = 8;
-	else if (val < 2)
-		val = 2;
+	else if (val < 1)
+		val = 1;
 
 	uaudio_buffer_ms = val;
 
@@ -133,7 +133,7 @@ uaudio_buffer_ms_sysctl(SYSCTL_HANDLER_ARGS)
 SYSCTL_PROC(_hw_usb_uaudio, OID_AUTO, buffer_ms,
     CTLTYPE_INT | CTLFLAG_RWTUN | CTLFLAG_MPSAFE, 0, sizeof(int),
     uaudio_buffer_ms_sysctl, "I",
-    "uaudio buffering delay from 2ms to 8ms");
+    "uaudio buffering delay from 1ms to 8ms");
 
 #ifdef USB_DEBUG
 static int uaudio_debug;
@@ -1306,12 +1306,59 @@ uaudio_detach(device_t dev)
 }
 
 static uint32_t
+uaudio_get_interval_frames(const usb_endpoint_descriptor_audio_t *ed)
+{
+	uint32_t frames = 1;
+	/* Isochronous transfer interval is 2^(bInterval - 1) frames. */
+	if (ed->bInterval >= 1 && ed->bInterval <= 16)
+		frames = (1 << (ed->bInterval - 1));
+	/* Limit transfer interval to maximum number of frames. */
+	if (frames > UAUDIO_NFRAMES)
+		frames = UAUDIO_NFRAMES;
+	return (frames);
+}
+
+static uint32_t
+uaudio_get_buffer_ms(struct uaudio_softc *sc, uint32_t int_frames)
+{
+	uint32_t ms = 1;
+	uint32_t fps = usbd_get_isoc_fps(sc->sc_udev);
+	/* Make sure a whole USB transfer interval fits into the buffer. */
+	if (fps >= 1000 && int_frames > 0 && int_frames <= UAUDIO_NFRAMES) {
+		/* Convert interval frames to milliseconds. */
+		ms = ((int_frames * 1000) / fps);
+	}
+	/* Respect minimum buffer length set through buffer_ms tunable. */
+	if (ms < uaudio_buffer_ms)
+		ms = uaudio_buffer_ms;
+	/* Limit buffer length to 8 milliseconds. */
+	if (ms > 8)
+		ms = 8;
+	return (ms);
+}
+
+static uint32_t
 uaudio_get_buffer_size(struct uaudio_chan *ch, uint8_t alt)
 {
 	struct uaudio_chan_alt *chan_alt = &ch->usb_alt[alt];
-	/* We use 2 times 8ms of buffer */
-	uint32_t buf_size = chan_alt->sample_size *
-	    howmany(chan_alt->sample_rate * (UAUDIO_NFRAMES / 8), 1000);
+	uint32_t int_frames, ms, buf_size;
+	/* USB transfer interval in frames, from endpoint descriptor. */
+	int_frames = uaudio_get_interval_frames(chan_alt->p_ed1);
+	/* Buffer length in milliseconds, and in bytes of audio data. */
+	ms = uaudio_get_buffer_ms(ch->priv_sc, int_frames);
+	buf_size = chan_alt->sample_size *
+	    howmany(chan_alt->sample_rate * ms, 1000);
+	return (buf_size);
+}
+
+static uint32_t
+uaudio_max_buffer_size(struct uaudio_chan *ch, uint8_t alt)
+{
+	struct uaudio_chan_alt *chan_alt = &ch->usb_alt[alt];
+	uint32_t buf_size;
+	/* Maximum buffer length is 8 milliseconds. */
+	buf_size = chan_alt->sample_size *
+	    howmany(chan_alt->sample_rate * 8, 1000);
 	return (buf_size);
 }
 
@@ -2621,7 +2668,7 @@ uaudio_chan_init(struct uaudio_chan *ch, struct snd_dbuf *b,
 
 	buf_size = 0;
 	for (x = 0; x != ch->num_alt; x++) {
-		uint32_t temp = uaudio_get_buffer_size(ch, x);
+		uint32_t temp = uaudio_max_buffer_size(ch, x);
 		if (temp > buf_size)
 			buf_size = temp;
 	}
