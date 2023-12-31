@@ -143,7 +143,7 @@ MALLOC_DECLARE(M_PRISON);
 
 struct racct;
 struct prison_racct;
-struct nvlist;
+struct nvtree_t;
 
 typedef enum {
 	PR_INET		= 0,
@@ -205,7 +205,7 @@ struct prison {
 	char		 pr_domainname[MAXHOSTNAMELEN];	/* (p) jail domainname */
 	char		 pr_hostuuid[HOSTUUIDLEN];	/* (p) jail hostuuid */
 	char		 pr_osrelease[OSRELEASELEN];	/* (c) kern.osrelease value */
-	struct nvlist	*nvparams;
+	struct nvtree_t	*nvparams;
 };
 
 struct prison_racct {

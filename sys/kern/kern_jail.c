@@ -52,8 +52,7 @@
 #include <sys/lock.h>
 #include <sys/mman.h>
 #include <sys/mutex.h>
-#include <sys/nv.h>
-#include <sys/dnv.h>
+#include <sys/nvtree.h>
 #include <sys/racct.h>
 #include <sys/rctl.h>
 #include <sys/refcount.h>
@@ -155,8 +154,6 @@ static void prison_proc_relink(struct prison *opr, struct prison *npr,
 static void prison_set_allow_locked(struct prison *pr, unsigned flag,
     int enable);
 static char *prison_path(struct prison *pr1, struct prison *pr2);
-static void remove_nv_param(nvlist_t *nvl, const char *name);
-static void merge_lists(nvlist_t *dst, const nvlist_t *src);
 #ifdef RACCT
 static void prison_racct_attach(struct prison *pr);
 static void prison_racct_modify(struct prison *pr);
@@ -1012,8 +1009,8 @@ kern_jail_set(struct thread *td, struct uio *optuio, int flags)
 	unsigned tallow;
 	char numbuf[12];
 	void *nvbuf = NULL;
-	nvlist_t *nvl = NULL;
-	bool partial;
+	nvtree_t *nvt = NULL;
+	nvtpair_t *partial;
 
 	error = priv_check(td, PRIV_JAIL_SET);
 	if (!error && (flags & JAIL_ATTACH))
@@ -1242,14 +1239,14 @@ kern_jail_set(struct thread *td, struct uio *optuio, int flags)
 	error = vfs_getopt(opts, "nvparams", &nvbuf, &len);
 	if (error == ENOENT) {
 		nvbuf = NULL;
-		nvl = nvlist_create(0);
+		nvt = nvtree_create();
 	}
 	else if (error != 0) {
 		goto done_free;
 	}
 	else {
-		nvl = nvlist_unpack(nvbuf, len, 0);
-		if (nvl == NULL) {
+		nvt = nvtree_unpack(nvbuf, len);
+		if (nvt == NULL) {
 			error = EINVAL;
 			goto done_free;
 		}
@@ -1632,7 +1629,7 @@ kern_jail_set(struct thread *td, struct uio *optuio, int flags)
 
 		pr = malloc(sizeof(*pr), M_PRISON, M_WAITOK | M_ZERO);
 		pr->pr_state = PRISON_STATE_INVALID;
-		pr->nvparams = nvlist_create(0);
+		pr->nvparams = nvtree_create();
 		refcount_init(&pr->pr_ref, 1);
 		refcount_init(&pr->pr_uref, 0);
 		drflags |= PD_DEREF;
@@ -1881,14 +1878,13 @@ kern_jail_set(struct thread *td, struct uio *optuio, int flags)
 		}
 	}
 
-	partial = dnvlist_get_bool(nvl, "_partial", false);
-	remove_nv_param(nvl, "_partial");
-	if (partial) {
-		merge_lists(pr->nvparams, nvl);
-		nvlist_destroy(nvl);
+	partial = nvtree_find(nvt, "_partial");
+	if (partial != NULL && partial->value.b) {
+		nvtree_merge(pr->nvparams, nvt, true);
+		nvtree_destroy(nvt);
 	} else {
-		nvlist_destroy(pr->nvparams);
-		pr->nvparams = nvl;
+		nvtree_destroy(pr->nvparams);
+		pr->nvparams = nvt;
 	}
 
 	/* Set the parameters of the prison. */
@@ -2584,7 +2580,7 @@ kern_jail_get(struct thread *td, struct uio *optuio, int flags)
 		goto done;
 
 	if (gotnvparams) {
-		nvbuf = nvlist_pack(pr->nvparams, &nvsize);
+		nvbuf = nvtree_pack(pr->nvparams, &nvsize);
 		if (nvbuf == NULL) {
 			error = EINVAL;
 			goto done;
@@ -2600,7 +2596,7 @@ kern_jail_get(struct thread *td, struct uio *optuio, int flags)
 			}
 		}
 	} else if (gotnvsize) {
-		nvsize = nvlist_size(pr->nvparams);
+		nvsize = nvtree_size(pr->nvparams);
 		error = vfs_setopt(opts, "nvsize", &nvsize, sizeof(nvsize));
 		if (error != 0 && error != ENOENT) {
 			goto done;
@@ -3335,7 +3331,7 @@ prison_deref(struct prison *pr, int flags)
 		if (racct_enable)
 			prison_racct_detach(rpr);
 #endif
-		free(rpr->nvparams, M_NVLIST);
+		free(rpr->nvparams, M_NVTREE);
 		TAILQ_REMOVE(&freeprison, rpr, pr_list);
 		free(rpr, M_PRISON);
 	}
@@ -4437,113 +4433,6 @@ sysctl_jail_jailed(SYSCTL_HANDLER_ARGS)
 SYSCTL_PROC(_security_jail, OID_AUTO, jailed,
     CTLTYPE_INT | CTLFLAG_RD | CTLFLAG_MPSAFE, NULL, 0,
     sysctl_jail_jailed, "I", "Process in jail?");
-
-static void
-remove_nv_param(nvlist_t *nvl, const char *name)
-{
-	if (nvl == NULL || nvlist_empty(nvl)) {
-		return;
-	}
-	if (nvlist_exists(nvl, name)) {
-		nvlist_free(nvl, name);
-	}
-}
-
-static void
-merge_lists(nvlist_t *dst, const nvlist_t *src)
-{
-	const char *name;
-	int type;
-	size_t items;
-	void *cookie = NULL;
-
-	if (dst == NULL || src == NULL || nvlist_empty(src)) {
-		return;
-	}
-	while ((name = nvlist_next(src, &type, &cookie)) != NULL) {
-		switch(type) {
-			case NV_TYPE_NULL: {
-				remove_nv_param(dst, name);
-				nvlist_add_null(dst, name);
-				break;
-			}
-			case NV_TYPE_BOOL: {
-				const bool value = nvlist_get_bool(src, name);
-				remove_nv_param(dst, name);
-				nvlist_add_bool(dst, name, value);
-				break;
-			}
-			case NV_TYPE_NUMBER: {
-				const uint64_t value = nvlist_get_number(src, name);
-				remove_nv_param(dst, name);
-				nvlist_add_number(dst, name, value);
-				break;
-			}
-			case NV_TYPE_STRING: {
-				const char *value = nvlist_get_string(src, name);
-				remove_nv_param(dst, name);
-				nvlist_add_string(dst, name, value);
-				break;
-			}
-			case NV_TYPE_NVLIST: {
-				const nvlist_t *value = nvlist_get_nvlist(src, name);
-				if (nvlist_exists_nvlist(dst, name)) {
-					const nvlist_t *d = nvlist_get_nvlist(dst, name);
-					nvlist_t *drw = __DECONST(nvlist_t *, d);
-					merge_lists(drw, value);
-				} else {
-					remove_nv_param(dst, name);
-					nvlist_add_nvlist(dst, name, value);
-				}
-				break;
-			}
-			case NV_TYPE_BOOL_ARRAY: {
-				const bool *array = nvlist_get_bool_array(src, name, &items);
-				if (nvlist_exists_bool_array(dst, name)) {
-					for (size_t i = 0; i < items; ++i) {
-						nvlist_append_bool_array(dst, name, array[i]);
-					}
-				} else {
-					remove_nv_param(dst, name);
-					nvlist_add_bool_array(dst, name, array, items);
-				}
-			}
-			case NV_TYPE_NUMBER_ARRAY: {
-				const uint64_t *array = nvlist_get_number_array(src, name, &items);
-				if (nvlist_exists_number_array(dst, name)) {
-					for (size_t i = 0; i < items; ++i) {
-						nvlist_append_number_array(dst, name, array[i]);
-					}
-				} else {
-					remove_nv_param(dst, name);
-					nvlist_add_number_array(dst, name, array, items);
-				}
-			}
-			case NV_TYPE_STRING_ARRAY: {
-				const char * const *array = nvlist_get_string_array(src, name, &items);
-				if (nvlist_exists_string_array(dst, name)) {
-					for (size_t i = 0; i < items; ++i) {
-						nvlist_append_string_array(dst, name, array[i]);
-					}
-				} else {
-					remove_nv_param(dst, name);
-					nvlist_add_string_array(dst, name, array, items);
-				}
-			}
-			case NV_TYPE_NVLIST_ARRAY: {
-				const nvlist_t * const *array = nvlist_get_nvlist_array(src, name, &items);
-				if (nvlist_exists_nvlist_array(dst, name)) {
-					for (size_t i = 0; i < items; ++i) {
-						nvlist_append_nvlist_array(dst, name, array[i]);
-					}
-				} else {
-					remove_nv_param(dst, name);
-					nvlist_add_nvlist_array(dst, name, array, items);
-				}
-			}
-		}
-	}
-}
 
 static int
 sysctl_jail_vnet(SYSCTL_HANDLER_ARGS)

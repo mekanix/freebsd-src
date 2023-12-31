@@ -23,6 +23,10 @@
 
 #define NVTREE_ARRAY	0x10
 
+#if defined(_KERNEL) && defined(MALLOC_DECLARE)
+MALLOC_DECLARE(M_NVTREE);
+#endif
+
 struct nvtree_t;
 struct nvtpair_t;
 
