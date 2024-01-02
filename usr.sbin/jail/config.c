@@ -26,6 +26,7 @@
  * SUCH DAMAGE.
  */
 
+#include <sys/queue.h>
 #include <sys/types.h>
 #include <sys/errno.h>
 #include <sys/socket.h>
@@ -126,7 +127,7 @@ static const struct ipspec intparams[] = {
 };
 
 static bool
-replace_vnet_auto(const char *jname) {
+replace_vnet(const char *jname) {
 	int rc = 0;
 	struct cfparam *param = NULL;
 	const char *vnet = "vnet.interface";
@@ -136,37 +137,44 @@ replace_vnet_auto(const char *jname) {
 	char *ifname = NULL;
 	struct cfjail *j;
 
+
 	TAILQ_FOREACH(j, &cfjails, tq) {
-		if (strcmp(jname, j->name) != 0) {
-			continue;
-		}
-		TAILQ_FOREACH(param, &j->params, tq) {
-			if (strncmp(param->name, vnet, vnetlen) != 0) {
-				continue;
-			}
-			TAILQ_FOREACH(cfs, &param->val, tq) {
-				if (strcmp(cfs->s, "auto") != 0) {
-					continue;
-				}
-				ifh = ifconfig_open();
-				if (ifh == NULL) {
-					perror("ifconfig_open");
-				}
-				ifname = malloc(IF_NAMESIZE);
-				rc = ifconfig_create_interface(ifh, "epair", &ifname);
-				if (rc < 0) {
-					perror("ifconfig_create_interface");
-				}
-				ifconfig_close(ifh);
-				free(cfs->s);
-				cfs->len = strlen(ifname);
-				strncpy(cfs->s, ifname, cfs->len);
-				cfs->s[cfs->len] = '\0';
-				printf("%s %s %lu\n", ifname, cfs->s, cfs->len);
-				free(ifname);
-			}
+		if (strcmp(jname, j->name) == 0) {
+			break;
 		}
 	}
+	if (j == NULL) {
+		return false;
+	}
+	TAILQ_FOREACH(param, &j->params, tq) {
+		if (strncmp(param->name, vnet, vnetlen) == 0) {
+			break;
+		}
+	}
+	if (param == NULL) {
+		return false;
+	}
+	TAILQ_FOREACH(cfs, &param->val, tq) {
+		if (strcmp(cfs->s, "auto") == 0) {
+			break;
+		}
+	}
+	if (cfs == NULL) {
+		return false;
+	}
+	ifh = ifconfig_open();
+	if (ifh == NULL) {
+		perror("ifconfig_open");
+	}
+	ifname = malloc(IF_NAMESIZE);
+	rc = ifconfig_create_interface(ifh, "epair", &ifname);
+	if (rc < 0) {
+		perror("ifconfig_create_interface");
+	}
+	ifconfig_close(ifh);
+	free(cfs->s);
+	cfs->len = strlen(ifname);
+	cfs->s = ifname;
 	return true;
 }
 
@@ -198,7 +206,7 @@ load_config(const char *cfname, int op, const char *jname)
 
 	if ((op & JF_START) == JF_START) {
 		if (jname != NULL) {
-			replace_vnet_auto(jname);
+			replace_vnet(jname);
 		}
 	}
 
@@ -236,6 +244,7 @@ load_config(const char *cfname, int op, const char *jname)
 		pgen = 0;
 		TAILQ_FOREACH(p, &j->params, tq) {
 		    p->gen = ++pgen;
+
 		find_vars:
 		    TAILQ_FOREACH(s, &p->val, tq) {
 			while ((v = STAILQ_FIRST(&s->vars))) {
