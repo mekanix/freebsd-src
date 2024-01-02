@@ -235,7 +235,7 @@ main(int argc, char **argv)
 		/* Just print list of all configured non-wildcard jails */
 		if (op || argc > 0)
 			usage();
-		load_config(cfname);
+		load_config(cfname, 0, NULL);
 		show_jails();
 		exit(0);
 	}
@@ -300,7 +300,7 @@ main(int argc, char **argv)
 					usage();
 		if ((docf = !Rflag &&
 		     (!strcmp(cfname, "-") || stat(cfname, &st) == 0)))
-			load_config(cfname);
+			load_config(cfname, op, NULL);
 		note_remove = docf || argc > 1 || wild_jail_name(argv[0]);
 	} else if (argc > 1 || (argc == 1 && strchr(argv[0], '='))) {
 		/* Single jail specified on the command line */
@@ -348,7 +348,7 @@ main(int argc, char **argv)
 		/* From the config file, perhaps with a specified jail */
 		if (Rflag || !docf)
 			usage();
-		load_config(cfname);
+		load_config(cfname, op, argv[0]);
 	}
 
 	/* Find out which jails will be run. */

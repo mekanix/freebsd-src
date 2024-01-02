@@ -5,7 +5,7 @@ PROG=	jail
 MAN=	jail.8 jail.conf.5
 SRCS=	jail.c command.c config.c state.c jailp.h jaillex.l jailparse.y y.tab.h
 
-LIBADD=	jail kvm util
+LIBADD=	jail kvm util ifconfig nvtree
 
 PACKAGE=jail
 
@@ -14,6 +14,7 @@ CWARNFLAGS.jailparse.c=	${NO_WUNUSED_BUT_SET_VARIABLE}
 
 YFLAGS+=-v
 CFLAGS+=-I. -I${.CURDIR}
+CFLAGS+=-I${SRCTOP}/lib/libifconfig -I${OBJTOP}/lib/libifconfig
 
 # workaround for GNU ld (GNU Binutils) 2.33.1:
 #   relocation truncated to fit: R_RISCV_GPREL_I against `.LANCHOR2'

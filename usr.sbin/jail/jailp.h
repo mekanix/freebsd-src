@@ -213,7 +213,7 @@ extern int next_command(struct cfjail *j);
 extern int finish_command(struct cfjail *j);
 extern struct cfjail *next_proc(int nonblock);
 
-extern void load_config(const char *cfname);
+extern void load_config(const char *cfname, int op, const char *jname);
 extern void include_config(void *scanner, const char *cfname);
 extern struct cfjail *add_jail(void);
 extern void add_param(struct cfjail *j, const struct cfparam *p,

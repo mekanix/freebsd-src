@@ -36,7 +36,9 @@
 
 #include <err.h>
 #include <glob.h>
+#include <libifconfig.h>
 #include <netdb.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -123,11 +125,56 @@ static const struct ipspec intparams[] = {
     [KP_VNET] =			{"vnet",		0},
 };
 
+static bool
+replace_vnet_auto(const char *jname) {
+	int rc = 0;
+	struct cfparam *param = NULL;
+	const char *vnet = "vnet.interface";
+	size_t vnetlen = strlen(vnet);
+	struct cfstring *cfs = NULL;
+	ifconfig_handle_t *ifh = NULL;
+	char *ifname = NULL;
+	struct cfjail *j;
+
+	TAILQ_FOREACH(j, &cfjails, tq) {
+		if (strcmp(jname, j->name) != 0) {
+			continue;
+		}
+		TAILQ_FOREACH(param, &j->params, tq) {
+			if (strncmp(param->name, vnet, vnetlen) != 0) {
+				continue;
+			}
+			TAILQ_FOREACH(cfs, &param->val, tq) {
+				if (strcmp(cfs->s, "auto") != 0) {
+					continue;
+				}
+				ifh = ifconfig_open();
+				if (ifh == NULL) {
+					perror("ifconfig_open");
+				}
+				ifname = malloc(IF_NAMESIZE);
+				rc = ifconfig_create_interface(ifh, "epair", &ifname);
+				if (rc < 0) {
+					perror("ifconfig_create_interface");
+				}
+				ifconfig_close(ifh);
+				free(cfs->s);
+				cfs->len = strlen(ifname);
+				strncpy(cfs->s, ifname, cfs->len);
+				cfs->s[cfs->len] = '\0';
+				printf("%s %s %lu\n", ifname, cfs->s, cfs->len);
+				free(ifname);
+			}
+		}
+	}
+	return true;
+}
+
 /*
  * Parse the jail configuration file.
  */
 void
-load_config(const char *cfname)
+load_config(const char *cfname, int op, const char *jname)
 {
 	struct cfjails wild;
 	struct cfparams opp;
@@ -147,6 +194,12 @@ load_config(const char *cfname)
 		j->seq = ++jseq;
 		if (wild_jail_name(j->name))
 			requeue(j, &wild);
+	}
+
+	if ((op & JF_START) == JF_START) {
+		if (jname != NULL) {
+			replace_vnet_auto(jname);
+		}
 	}
 
 	TAILQ_FOREACH(j, &cfjails, tq) {
@@ -200,6 +253,7 @@ load_config(const char *cfname)
 							vp->flags |= PF_BAD;
 					goto free_var;
 				}
+
 				if (vp->flags & PF_BAD)
 					goto bad_var;
 				if (vp->gen == pgen) {

@@ -328,6 +328,7 @@ run_command(struct cfjail *j)
 		} else {
 			if (create_jail(j) < 0)
 				return -1;
+			// TODO set vnet.interface nvparam
 			if (iflag)
 				printf("%d\n", j->jid);
 			if (verbose >= 0 && (j->name || verbose > 0))
