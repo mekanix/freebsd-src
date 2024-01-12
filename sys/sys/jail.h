@@ -127,6 +127,9 @@ __END_DECLS
 #include <sys/_task.h>
 
 #define JAIL_MAX	999999
+#ifndef IF_NAMESIZE
+#define IF_NAMESIZE	16
+#endif
 
 #ifdef MALLOC_DECLARE
 MALLOC_DECLARE(M_PRISON);
@@ -204,6 +207,7 @@ struct prison {
 	char		 pr_domainname[MAXHOSTNAMELEN];	/* (p) jail domainname */
 	char		 pr_hostuuid[HOSTUUIDLEN];	/* (p) jail hostuuid */
 	char		 pr_osrelease[OSRELEASELEN];	/* (c) kern.osrelease value */
+	char		 pr_viface[IF_NAMESIZE];	/* (p) jail vnet.interface */
 };
 
 struct prison_racct {

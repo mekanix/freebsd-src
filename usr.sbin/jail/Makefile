@@ -3,7 +3,7 @@
 
 PROG=	jail
 MAN=	jail.8 jail.conf.5
-SRCS=	jail.c command.c config.c state.c jailp.h jaillex.l jailparse.y y.tab.h
+SRCS=	jail.c command.c config.c state.c jailp.h jaillex.l jailparse.y y.tab.h epair.c epair.h
 
 LIBADD=	jail kvm util
 

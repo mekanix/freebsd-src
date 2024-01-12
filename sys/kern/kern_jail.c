@@ -982,7 +982,7 @@ kern_jail_set(struct thread *td, struct uio *optuio, int flags)
 	struct prison *pr, *deadpr, *dinspr, *inspr, *mypr, *ppr, *tpr;
 	struct vnode *root;
 	char *domain, *errmsg, *host, *name, *namelc, *p, *path, *uuid;
-	char *g_path, *osrelstr;
+	char *g_path, *osrelstr, *viface;
 	struct bool_flags *bf;
 	struct jailsys_flags *jsf;
 #if defined(INET) || defined(INET6)
@@ -1231,6 +1231,21 @@ kern_jail_set(struct thread *td, struct uio *optuio, int flags)
 			goto done_free;
 		}
 	}
+
+	error = vfs_getopt(opts, "vnet.interface", (void **)&viface, &len);
+	if (error == ENOENT) {
+		viface = NULL;
+	}
+	else if (error != 0) {
+		viface = NULL;
+		goto done_free;
+	}
+	else if (len != IF_NAMESIZE) {
+		viface = NULL;
+		error = EINVAL;
+		goto done_free;
+	}
+
 
 #ifdef COMPAT_FREEBSD32
 	if (SV_PROC_FLAG(td->td_proc, SV_ILP32)) {
@@ -1609,6 +1624,7 @@ kern_jail_set(struct thread *td, struct uio *optuio, int flags)
 
 		pr = malloc(sizeof(*pr), M_PRISON, M_WAITOK | M_ZERO);
 		pr->pr_state = PRISON_STATE_INVALID;
+		pr->pr_viface[0] = '\0';
 		refcount_init(&pr->pr_ref, 1);
 		refcount_init(&pr->pr_uref, 0);
 		drflags |= PD_DEREF;
@@ -1944,6 +1960,9 @@ kern_jail_set(struct thread *td, struct uio *optuio, int flags)
 		strlcpy(pr->pr_path, path, sizeof(pr->pr_path));
 		pr->pr_root = root;
 		root = NULL;
+	}
+	if (viface != NULL) {
+		strlcpy(pr->pr_viface, viface, IF_NAMESIZE);
 	}
 	if (PR_HOST & ch_flags & ~pr_flags) {
 		if (pr->pr_flags & PR_HOST) {
@@ -2450,6 +2469,9 @@ kern_jail_get(struct thread *td, struct uio *optuio, int flags)
 	if (error != 0 && error != ENOENT)
 		goto done;
 	error = vfs_setopts(opts, "host.hostuuid", pr->pr_hostuuid);
+	if (error != 0 && error != ENOENT)
+		goto done;
+	error = vfs_setopts(opts, "vnet.interface", pr->pr_viface);
 	if (error != 0 && error != ENOENT)
 		goto done;
 #ifdef COMPAT_FREEBSD32

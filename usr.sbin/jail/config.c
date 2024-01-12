@@ -33,6 +33,7 @@
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include <net/if.h>
 
 #include <err.h>
 #include <glob.h>
@@ -43,6 +44,7 @@
 #include <unistd.h>
 
 #include "jailp.h"
+#include "epair.h"
 
 #define MAX_INCLUDE_DEPTH 32
 
@@ -124,6 +126,74 @@ static const struct ipspec intparams[] = {
     [KP_VNET] =			{"vnet",		0},
 };
 
+static void
+load_state(struct cfjail *j) {
+	int rc;
+	int jid;
+	struct iovec jiov[4];
+	char viface[IF_NAMESIZE];
+	struct cfparam *param = NULL;
+	const char *vnet = "vnet.interface";
+	size_t vnetlen = 0;
+	struct cfstring *cfs = NULL;
+	char *ifname = NULL;
+
+	if (j == NULL) {
+		return;
+	}
+	vnetlen = strlen(vnet);
+	TAILQ_FOREACH(param, &j->params, tq) {
+		if (strncmp(param->name, vnet, vnetlen) == 0) {
+			break;
+		}
+	}
+	if (param == NULL) {
+		return;
+	}
+	TAILQ_FOREACH(cfs, &param->val, tq) {
+		if (strcmp(cfs->s, "auto") == 0) {
+			break;
+		}
+	}
+	if (cfs == NULL) {
+		return;
+	}
+	jid = jail_getid(j->name);
+	if (jid > 0) {
+		j->jid = jid;
+		jiov[0].iov_base = __DECONST(char *, "jid");
+		jiov[0].iov_len = sizeof("jid");
+		jiov[1].iov_base = &jid;
+		jiov[1].iov_len = sizeof(jid);
+		jiov[2].iov_base = __DECONST(char *, "vnet.interface");
+		jiov[2].iov_len = vnetlen;
+		jiov[3].iov_base = viface;
+		jiov[3].iov_len = IF_NAMESIZE;
+		rc = jail_get(jiov, 4, 0);
+		if (rc > 0) {
+			free(cfs->s);
+			cfs->len = strlen(viface);
+			strlcpy(cfs->s, viface, IF_NAMESIZE);
+		}
+	} else {
+		warnx("creating epair\n");
+		ifname = create_epair();
+		if (ifname == NULL) {
+			errx(EXIT_FAILURE, "Failed creating epair");
+		}
+		size_t index = strlen(ifname);
+		if (index < 1) {
+			errx(EXIT_FAILURE, "Failed to get length of ifname");
+		}
+		--index;
+		ifname[index] = 'b';
+		warnx("created %s\n", ifname);
+		free(cfs->s);
+		cfs->len = strlen(ifname);
+		cfs->s = ifname;
+	}
+}
+
 /*
  * Parse the jail configuration file.
  */
@@ -151,6 +221,7 @@ load_config(const char *cfname)
 	}
 
 	TAILQ_FOREACH(j, &cfjails, tq) {
+		load_state(j);
 		/* Set aside the jail's parameters. */
 		TAILQ_INIT(&opp);
 		TAILQ_CONCAT(&opp, &j->params, tq);
