@@ -159,6 +159,8 @@ ATF_TEST_CASE_BODY(unpacking)
 	// nvlist_add_number_array(nvl, "array", &number, 1);
 	// nvlist_add_nvlist(nvl, "sub", snvl);
 	nvlist_add_nvlist_array(nvl, "subarr", &snvl, 1);
+	snvl = nvlist_create(0);
+	nvlist_append_nvlist_array(nvl, "another", snvl);
 	data = nvlist_pack(nvl, &size);
 	print_bytes((uint8_t *)data, size, 0);
 	try {

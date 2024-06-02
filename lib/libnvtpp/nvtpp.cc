@@ -586,13 +586,13 @@ Tree::pack(packed_t &data)
 
 	for (const auto &item : _value) {
 		item.second->pack(data);
-	}
-	if (_parent != nullptr) {
-		pack_data(data, (uint8_t)0xff);
-		pack_data(data, (uint16_t)1);
-		pack_data(data, (uint64_t)0);
-		pack_data(data, (uint64_t)0);
-		pack_data(data, false);
+		if (item.second->type() == Type::TREE) {
+			pack_data(data, (uint8_t)0xff);
+			pack_data(data, (uint16_t)1);
+			pack_data(data, (uint64_t)0);
+			pack_data(data, (uint64_t)0);
+			pack_data(data, false);
+		}
 	}
 	if (_parent == nullptr) {
 		pack_size(data);
@@ -875,6 +875,13 @@ Array<T>::pack(packed_t &data)
 	pack_data(data, _name);
 	for (const auto &item: _value) {
 		item->pack_raw(data);
+		if (item->type() == Type::TREE) {
+			pack_data(data, (uint8_t)0xfe);
+			pack_data(data, (uint16_t)1);
+			pack_data(data, (uint64_t)0);
+			pack_data(data, (uint64_t)0);
+			pack_data(data, false);
+		}
 	}
 	return true;
 }
