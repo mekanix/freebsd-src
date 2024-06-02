@@ -873,9 +873,13 @@ Array<T>::pack(packed_t &data)
 	pack_data(data, (uint64_t)(t.data_size() * _value.size()));
 	pack_data(data, (uint64_t)_value.size());
 	pack_data(data, _name);
-	for (const auto &item: _value) {
-		item->pack_raw(data);
-		if (item->type() == Type::TREE) {
+	if (t.type() == Type::TREE) {
+		for (const auto &item: _value) {
+			item->pack_raw(data);
+		}
+	} else {
+		for (const auto &item: _value) {
+			item->pack_raw(data);
 			pack_data(data, (uint8_t)0xfe);
 			pack_data(data, (uint16_t)1);
 			pack_data(data, (uint64_t)0);
