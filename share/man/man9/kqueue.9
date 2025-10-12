@@ -429,9 +429,196 @@ will return zero on success,
 if the file descriptor is not a kqueue, or any of the possible values returned
 by
 .Xr kevent 2 .
+.Sh EXAMPLES
+It is often the case that device has two channels: one for reading and one for
+writing.
+That's exacly what this example will assume with the module called
+.Fa dummy .
+.Pp
+Two structures are of importance for kernel side kqueue support:
+.Fa struct mtx
+and
+.Fa struct selinfo .
+It is very probable the module already has these structures and that they are
+per channel.
+Somewhere in
+.Fa open
+handler, list of knotes should be initialized.
+.Bd -literal
+static int
+dummy_open(...)
+{
+	. . .
+	// Initialize knlist for one channel
+	knlist_init_mtx(&selinfo.si_note, mtx);
+	. . .
+}
+
+static int
+dummy_close(...)
+{
+	. . .
+	// Destroy knlist for one channel
+	knlist_clear(&selinfo.si_note, 0);
+	knlist_destroy(&selinfo.si_note);
+	. . .
+}
+.Ed
+.Pp
+The
+.Fa 0
+in
+.Fa knlist_clear
+denotes that
+.Fa mtx
+is not locked and that invocation of this function should lock it.
+.Pp
+Next we need to register kqueue filters as knotes.
+To do that, we define
+.Fn dummy_kqfilter
+function.
+.Bd -literal
+static int
+dummy_kqfilter(struct cdev *dev, struct knote *kn)
+{
+	int error = 0;
+	// Get the pointer we want to save in kn_hook
+	// and name it "mydev"
+	kn->kn_hook = mydev;
+	switch (kn->kn_filter) {
+	case EVFILT_READ:
+		kn->kn_fop = &dummy_kqfilter_read_ops;
+		knlist_add(&selinfo.si_note, kn, 1);
+		break;
+	case EVFILT_WRITE:
+		kn->kn_fop = &dummy_kqfilter_write_ops;
+		knlist_add(&selinfo.si_note, kn, 1);
+		break;
+	default:
+		error = EINVAL;
+		break;
+	}
+	return (error);
+}
+.Ed
+.Pp
+Note that
+.Fa mydev
+is usually fetched from the module and it is the pointer we will later use for
+easier handling of events in filter functions.
+The
+.Fa selinfo
+is also fetched from the module.
+.Fn kn_list_add
+has
+.Fa 1
+as last argument denoting that the invocation of that function will not lock.
+To get
+.Fa mydev
+and
+.Fa selinfo
+you will probably have to lock, so this function shouldn't.
+Next, we need read and write filterops.
+For simplicity, only read filterops are shown.
+.Bd -literal
+static const struct filterops dummy_kqfilter_read_ops = {
+	.f_isfd = 1,
+	.f_detach = dummy_kqdetach,
+	.f_event = dummy_kqfilter_read_event,
+};
+.Ed
+.Pp
+Both, read and write filterops will share the detach function, but event
+function will be different.
+Let us examine
+.Fn dummy_kqfilter_read_event
+next.
+.Bd -literal
+static int
+dummy_kqfilter_read_event(struct knote *kn, long hint)
+{
+	mydev = kn->kn_hook;
+	if (/* there's something wrong */) {
+		kn->kn_data = EBADF;
+		kn->kn_flags |= EV_ERROR;
+		return (1);
+	}
+	if (/* knote should be ignored /*)
+		return (0);
+	// Replace 1024 with size of data ready to be read from this channel.
+	// If kn_data will not change over time, you can set the size in
+	// dummy_kqfilter
+	kn->kn_data = 1024;
+	return (1);
+}
+.Ed
+.Pp
+As
+.Xr kqueue 9
+doesn't change
+.Fa kn_hook ,
+you can get the
+.Fa mydev
+from
+.Fa kn .
+You should take care of any locking that's needed.
+Next, let's see how
+.Fn dummy_kqdetach
+should be implemented.
+.Bd -literal
+static void
+dummy_kqdetach(struct knote *kn)
+{
+	. . .
+	knlist_remove(&selinfo.si_note, kn, 0);
+	. . .
+}
+.Ed
+.Pp
+The
+.Fa 0
+denotes that the invocation of this function should lock fist.
+If the rest of the code already locks, change
+.Fa 0
+to
+.Fa 1 .
+What is needed now is to notify when there is some IO.
+To do that, find the
+.Xr selwakeup 9
+or
+.Fa selwakeuppri
+and place the call to
+.Fa KNOTE_LOCKED
+around that function call.
+Where exactly should it be called depends on the implementation of the
+.Fn dummy_chn_wakeup
+function in an actual module.
+.Bd -literal
+static void
+dummy_chn_wakeup(/* arguments */)
+{
+	. . .
+	selwakeup(selinfo);
+	KNOTE_LOCKED(&selinfo.si_note, 0);
+	. . .
+}
+.Ed
+.Pp
+The last bit is to register
+.Fn dummy_kqfilter
+as a module handler.
+.Bd -literal
+static d_kqfilter_t dummy_kqfilter;
+struct cdevsw dsp_cdevsw = {
+	. . .
+	.d_kqfilter =	dsp_kqfilter,
+	. . .
+}
+.Ed
 .Sh SEE ALSO
 .Xr kevent 2 ,
-.Xr kqueue 2
+.Xr kqueue 2 ,
+.Xr selwakeup 2
 .Sh AUTHORS
 This
 manual page was written by
