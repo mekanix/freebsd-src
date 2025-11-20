@@ -25,7 +25,6 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/mman.h>
 #include <sys/event.h>
 
 #include <fcntl.h>
@@ -62,12 +61,6 @@ main(int argc, char *argv[])
 		? config_in.buffer_info.bytes
 		: config_out.buffer_info.bytes;
 	buf = malloc(bytes);
-	config_in.buf = mmap(NULL, config_in.buffer_info.bytes, PROT_READ, MAP_SHARED, config_in.fd, 0);
-	if (config_in.buf == MAP_FAILED)
-		err(1, "Memory map failed");
-	config_out.buf = mmap(NULL, config_out.buffer_info.bytes, PROT_WRITE, MAP_SHARED, config_out.fd, 0);
-	if (config_out.buf == MAP_FAILED)
-		err(1, "Memory map failed");
 
 	/* Initialize kqueue */
 	kq = kqueue();
