@@ -36,6 +36,7 @@ main(int argc, char *argv[])
 {
 	int rc, bytes, kq;
 	uint8_t *buf;
+	count_info ci;
 	oss_syncgroup sync_group = {0, 0, {0}};
 	struct kevent event = {};
 	struct config config_in = {
@@ -96,10 +97,16 @@ main(int argc, char *argv[])
 			warn("Event error: %s", strerror(event.data));
 			break;
 		}
-		if (event.udata == &config_out)
+		if (event.udata == &config_out) {
+			ioctl(config_out.fd, SNDCTL_DSP_GETOPTR, &ci);
 			memcpy(config_out.buf, buf, bytes);
-		else
+			printf("Output");
+		} else {
+			ioctl(config_out.fd, SNDCTL_DSP_GETIPTR, &ci);
 			memcpy(buf, config_in.buf, bytes);
+			printf("Input");
+		}
+		printf(": %d\n", ci.ptr);
 	}
 
 	/* Cleanup */
