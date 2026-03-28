@@ -76,12 +76,17 @@ struct snd_midi {
 	struct cdev *dev;
 };
 
+struct midi_cdevpriv {
+	int	fflags;
+};
+
 static d_open_t midi_open;
 static d_close_t midi_close;
 static d_ioctl_t midi_ioctl;
 static d_read_t midi_read;
 static d_write_t midi_write;
 static d_poll_t midi_poll;
+static d_kqfilter_t midi_kqfilter;
 
 static struct cdevsw midi_cdevsw = {
 	.d_version = D_VERSION,
@@ -91,11 +96,20 @@ static struct cdevsw midi_cdevsw = {
 	.d_write = midi_write,
 	.d_ioctl = midi_ioctl,
 	.d_poll = midi_poll,
+	.d_kqfilter = midi_kqfilter,
 	.d_name = "midi",
 };
 
 struct unrhdr *dev_unr = NULL;
 struct unrhdr *chn_unr = NULL;
+
+static void
+midi_cdevpriv_dtor(void *data)
+{
+	struct midi_cdevpriv *priv = data;
+
+	free(priv, M_MIDI);
+}
 
 /*
  * Register a new midi device.
@@ -138,6 +152,9 @@ midi_init(kobj_class_t cls, void *cookie)
 	m->channel = alloc_unr(chn_unr);
 	m->cookie = cookie;
 
+	knlist_init_mtx(&m->rsel.si_note, &m->lock);
+	knlist_init_mtx(&m->wsel.si_note, &m->lock);
+
 	if (MPU_INIT(m, cookie))
 		goto err2;
 
@@ -172,6 +189,10 @@ midi_uninit(struct snd_midi *m)
 		m->wchan = 0;
 	}
 	mtx_unlock(&m->lock);
+	knlist_clear(&m->rsel.si_note, 1);
+	knlist_destroy(&m->rsel.si_note);
+	knlist_clear(&m->wsel.si_note, 1);
+	knlist_destroy(&m->wsel.si_note);
 	MPU_UNINIT(m, m->cookie);
 	destroy_dev(m->dev);
 	free_unr(dev_unr, m->unit);
@@ -216,6 +237,7 @@ midi_in(struct snd_midi *m, uint8_t *buf, int size)
 		wakeup(&m->rchan);
 		m->rchan = 0;
 	}
+	KNOTE_LOCKED(&m->rsel.si_note, 0);
 	selwakeup(&m->rsel);
 	mtx_unlock(&m->lock);
 	return used;
@@ -248,6 +270,7 @@ midi_out(struct snd_midi *m, uint8_t *buf, int size)
 			wakeup(&m->wchan);
 			m->wchan = 0;
 		}
+		KNOTE_LOCKED(&m->wsel.si_note, 0);
 		selwakeup(&m->wsel);
 	}
 	mtx_unlock(&m->lock);
@@ -257,6 +280,7 @@ midi_out(struct snd_midi *m, uint8_t *buf, int size)
 int
 midi_open(struct cdev *i_dev, int flags, int mode, struct thread *td)
 {
+	struct midi_cdevpriv *priv;
 	struct snd_midi *m = i_dev->si_drv1;
 	int retval;
 
@@ -300,6 +324,17 @@ midi_open(struct cdev *i_dev, int flags, int mode, struct thread *td)
 		m->flags |= M_TX;
 
 	MPU_CALLBACK(m, m->cookie, m->flags);
+
+	priv = malloc(sizeof(*priv), M_MIDI, M_WAITOK);
+	priv->fflags = flags;
+	if ((retval = devfs_set_cdevpriv(priv, midi_cdevpriv_dtor)) != 0) {
+		free(priv, M_MIDI);
+		if (flags & FREAD)
+			m->flags &= ~(M_RX | M_RXEN);
+		if (flags & FWRITE)
+			m->flags &= ~M_TX;
+		MPU_CALLBACK(m, m->cookie, m->flags);
+	}
 
 err:
 	mtx_unlock(&m->lock);
@@ -518,6 +553,102 @@ midi_poll(struct cdev *i_dev, int events, struct thread *td)
 	mtx_unlock(&m->lock);
 
 	return (revents);
+}
+
+static void
+midi_kqdetach(struct knote *kn)
+{
+	struct snd_midi *m = kn->kn_hook;
+
+	if (m == NULL)
+		return;
+
+	mtx_lock(&m->lock);
+	if (kn->kn_filter == EVFILT_READ)
+		knlist_remove(&m->rsel.si_note, kn, 1);
+	else if (kn->kn_filter == EVFILT_WRITE)
+		knlist_remove(&m->wsel.si_note, kn, 1);
+	mtx_unlock(&m->lock);
+}
+
+static int
+midi_kqfilter_read_event(struct knote *kn, long hint)
+{
+	struct snd_midi *m = kn->kn_hook;
+
+	mtx_assert(&m->lock, MA_OWNED);
+	kn->kn_data = 0;
+
+	if (!MIDIQ_EMPTY(m->inq))
+		kn->kn_data = MIDIQ_LEN(m->inq);
+
+	return (kn->kn_data > 0);
+}
+
+static int
+midi_kqfilter_write_event(struct knote *kn, long hint)
+{
+	struct snd_midi *m = kn->kn_hook;
+
+	mtx_assert(&m->lock, MA_OWNED);
+	kn->kn_data = 0;
+
+	if (MIDIQ_AVAIL(m->outq) > m->hiwat)
+		kn->kn_data = MIDIQ_AVAIL(m->outq);
+
+	return (kn->kn_data > 0);
+}
+
+static const struct filterops midi_kqfilter_read_ops = {
+	.f_isfd = 1,
+	.f_detach = midi_kqdetach,
+	.f_event = midi_kqfilter_read_event,
+	.f_copy = knote_triv_copy,
+};
+
+static const struct filterops midi_kqfilter_write_ops = {
+	.f_isfd = 1,
+	.f_detach = midi_kqdetach,
+	.f_event = midi_kqfilter_write_event,
+	.f_copy = knote_triv_copy,
+};
+
+static int
+midi_kqfilter(struct cdev *dev, struct knote *kn)
+{
+	struct midi_cdevpriv *priv;
+	int error = 0;
+	struct snd_midi *m = dev->si_drv1;
+
+	if (m == NULL)
+		return (ENXIO);
+	if ((error = devfs_get_cdevpriv((void **)&priv)) != 0)
+		return (error);
+
+	switch (kn->kn_filter) {
+	case EVFILT_READ:
+		if ((priv->fflags & FREAD) == 0)
+			return (EINVAL);
+		kn->kn_fop = &midi_kqfilter_read_ops;
+		kn->kn_hook = m;
+		mtx_lock(&m->lock);
+		knlist_add(&m->rsel.si_note, kn, 1);
+		mtx_unlock(&m->lock);
+		break;
+	case EVFILT_WRITE:
+		if ((priv->fflags & FWRITE) == 0)
+			return (EINVAL);
+		kn->kn_fop = &midi_kqfilter_write_ops;
+		kn->kn_hook = m;
+		mtx_lock(&m->lock);
+		knlist_add(&m->wsel.si_note, kn, 1);
+		mtx_unlock(&m->lock);
+		break;
+	default:
+		error = EINVAL;
+		break;
+	}
+	return (error);
 }
 
 static void
