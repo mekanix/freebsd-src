@@ -529,6 +529,84 @@ See
 for a complete list of the supported
 .Fn ioctl
 functions.
+.Ss kqueue Support
+The
+.Xr kevent 2
+structure's fields are defined as follows:
+.Bl -tag -width "Fa filter"
+.It Fa ident
+The file descriptor for the device.
+.It Fa filter
+The kernel filter used to process the event.
+This is either
+.Dv EVFILT_READ
+for recording or
+.Dv EVFILT_WRITE
+for playback.
+.It Fa data
+The number of bytes available to be read or written.
+.It Fa ext
+The first two elements contain position and error information corresponding
+to fields returned by the following
+.Fn ioctl
+calls.
+.Pp
+.Bl -bullet -compact
+.It
+.Xr ext[0]
+For devices that use
+.Xr mmap 2 ,
+the field contains the
+.Vt count_info
+.Va ptr
+field reported by
+.Dv SNDCTL_DSP_GETIPTR
+for recording or
+.Dv SNDCTL_DSP_GETOPTR
+for playback, whereas for devices that do not use
+.Xr mmap 2 ,
+it contains
+.Vt oss_count_t
+.Va fifo_samples
+field reported by
+.Dv SNDCTL_DSP_CURRENT_IPTR
+for recording or
+.Dv SNDCTL_DSP_CURRENT_OPTR
+for playback.
+.Pp
+.It
+.Xr ext[1]
+contains the
+.Vt audio_errinfo
+.Va rec_overruns
+field for recording events, or the
+.Va play_underruns
+field for playback events, as reported by
+.Dv SNDCTL_DSP_GETERROR .
+.Pp
+This allows a single kevent to report that data is ready, how many bytes can
+be read or written, the current buffer position, and the current error count.
+This is especially useful for scenarios that use
+.Xr mmap 2
+based access because without
+.Xr kqueue 2
+the typical processing loop consists of
+.Bl -bullet -compact
+.It
+calculate wait time and call
+.Xr clock_nanosleep 2
+.It
+use
+.Xr ioctl 2
+for SNDCTL_DSP_GETIPTR (or SNDCTL_DSP_GETOPTR for playback) to get the pointer
+into the memory-mapped buffer where new data starts
+.It
+use
+.Xr ioctl 2
+for SNDCTL_DSP_GETERROR to get xruns and handle them.
+As recording and playback devices are usually opened separately, xruns must be
+handled for two devices.
+.El
 .Sh FILES
 The
 .Nm
